@@ -31,6 +31,8 @@ export interface ColorSpace {
   readonly base?: ColorSpace;
   /** Separation or DeviceN whose colorants are all /None: painting in it marks nothing. */
   readonly none?: boolean;
+  /** DeviceGray or DeviceRGB (possibly as ICCBased): components are R, G, B (or gray) as they are. */
+  readonly direct?: boolean;
 }
 
 /** Convert one pixel: `n` components of `s` from `i` to R, G, B (0-255, clamped by `d`) at `d[j]`. */
@@ -208,7 +210,7 @@ const cache: Record<string, ColorSpace> = {};
 function device(name: string): ColorSpace {
   const [n, px] = DEVICE[name];
   // CMYK rows use the table; single colors the polynomial itself.
-  return (cache[name] ??= n === 4 ? { ...space(name, 4, cmykRow, [0, 0, 0, 1]), rgb: space(name, 4, px).rgb } : space(name, n, px));
+  return (cache[name] ??= n === 4 ? { ...space(name, 4, cmykRow, [0, 0, 0, 1]), rgb: space(name, 4, px).rgb } : { ...space(name, n, px), direct: true });
 }
 
 /** A 1-component space through a 256-entry table for rows, `exact` for single colors. */

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `renderPage`: render pages to a canvas (Canvas 2D, main thread or worker). Embedded TrueType, OpenType, CFF, Type 1 and Type 3 fonts; images; shadings and patterns; transparency groups and soft masks; annotations; optional content. Not yet: JPEG 2000 and JBIG2 images.
+- `renderPage`: render pages to a canvas (Canvas 2D, main thread or worker). Embedded TrueType, OpenType, CFF, Type 1 and Type 3 fonts; images, decoded at about the size drawn and cached per document (CMYK JPEGs by leanpdf's own decoder, since browsers invert them); shadings and patterns; transparency groups and soft masks; annotations; optional content. Not yet: JPEG 2000 and JBIG2 images.
 - Website: a View tab.
 
 ## 0.2.0

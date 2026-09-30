@@ -119,6 +119,22 @@ describe.skipIf(!!skip)('renderPage vs MuPDF', () => {
     expect(near(pixel(ours, 20 + 4, 400 - 150 - 96 + 4), [230, 51, 51], 24) || near(pixel(ours, 20 + 16, 400 - 150 - 96 + 4), [230, 51, 51], 24)).toBe(true);
   });
 
+  test('images: CMYK and YCCK JPEGs, as stored and Adobe-inverted, full size and reduced', async () => {
+    const b = new DocBuilder();
+    const jpg = (f: string) => new Uint8Array(readFileSync(new URL(`../render/fixtures/jpeg/${f}`, import.meta.url)));
+    const dict = '/Type /XObject /Subtype /Image /Width 45 /Height 37 /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /DCTDecode';
+    const inverted = ' /Decode [1 0 1 0 1 0 1 0]';
+    const im = {
+      A: b.stream(dict, jpg('cmyk.jpg')),
+      B: b.stream(dict + inverted, jpg('cmyk.jpg')),
+      C: b.stream(dict + inverted, jpg('ycck.jpg')),
+      D: b.stream(dict + inverted, jpg('cmyk-progressive-restart.jpg')),
+    };
+    const content = ['q 180 0 0 148 10 240 cm /A Do Q', 'q 180 0 0 148 210 240 cm /B Do Q', 'q 180 0 0 148 410 240 cm /C Do Q', 'q 180 0 0 148 10 40 cm /D Do Q', 'q 20 0 0 16 300 100 cm /B Do Q'].join('\n');
+    b.page({ width: 600, height: 400, content, xobjects: im });
+    await check('cmyk-jpeg', b.finish().build().bytes, { mae: 4, bad: 0.01 });
+  });
+
   test('text: fonts that are not embedded', async () => {
     const b = new DocBuilder();
     const fonts = ['Helvetica', 'Times-Roman', 'Courier', 'Helvetica-Bold'].map((f) => b.obj(`<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding >>`));

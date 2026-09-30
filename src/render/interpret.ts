@@ -14,7 +14,7 @@ import { stringBytes } from '../core/strings.ts';
 import { loadColorSpace, type ColorSpace } from './colorspace.ts';
 import { loadRenderFont, type RenderFont } from './font.ts';
 import { loadFunction } from './function.ts';
-import { loadImage, type ImageDict, type LoadedImage } from './image.ts';
+import { loadImage, type ImageCache, type ImageDict } from './image.ts';
 import { maskToAlpha, paintShading, setT } from './paint.ts';
 import { loadShading, type ShadingPaint } from './shading.ts';
 import { asMatrix, blendMode, canvas, css, IDENTITY, intersect, invert, mul, pixelBox, scaleOf, transformBox, type Box, type Canvas, type Ctx, type Matrix } from './util.ts';
@@ -114,6 +114,7 @@ export interface RenderContext {
   /** Is optional content (an OCG or OCMD reference) visible? */
   visible(oc: PdfObj | undefined): Promise<boolean>;
   fonts: Map<number, Promise<RenderFont>>;
+  images: ImageCache;
 }
 
 const CAPS: CanvasLineCap[] = ['butt', 'round', 'square'];
@@ -140,7 +141,6 @@ export class Interpreter {
   private pendingClip: CanvasFillRule | null = null;
   private readonly active = new Set<number>();
   private readonly patterns = new Map<number, Promise<Pattern | undefined>>();
-  private readonly images = new Map<number, { img: LoadedImage | null; w: number; h: number }>();
   private readonly spaces = new Map<PdfDict | undefined, Map<string, Promise<ColorSpace | undefined>>>();
 
   constructor(rc: RenderContext, target: Target, ctm: Matrix) {
@@ -478,12 +478,12 @@ export class Interpreter {
     const m = mul([1, 0, 0, -1, 0, 1], this.gs.ctm);
     const w = Math.hypot(m[0], m[1]);
     const h = Math.hypot(m[2], m[3]);
-    let entry = cacheKey >= 0 ? this.images.get(cacheKey) : undefined;
+    let entry = cacheKey >= 0 ? this.rc.images.get(cacheKey) : undefined;
     if (!entry || entry.w < w * 0.9 || entry.h < h * 0.9) {
       const cs = await this.rc.doc.resolve(run.res?.get('ColorSpace'));
       const img = await loadImage(this.rc.doc, get, await data(), { width: w, height: h, colorSpaces: cs instanceof PdfDict ? cs : undefined, warn: this.rc.warn });
       entry = { img, w, h };
-      if (cacheKey >= 0) this.images.set(cacheKey, entry);
+      if (cacheKey >= 0) this.rc.images.set(cacheKey, entry);
     }
     const img = entry.img;
     if (!img || this.hidden) return;
@@ -669,11 +669,10 @@ export class Interpreter {
         } else if (f.path) {
           const p = f.path(code);
           if (p) {
-            const gm = mul(f.matrix, trm);
-            box = unionBox(box, transformBox([-0.2, -0.4, 1.5, 1.2], dev));
             if (outline || clips) {
+              box = unionBox(box, transformBox([-0.2, -0.4, 1.5, 1.2], dev));
               collected ??= new Path2D();
-              collected.addPath(p, new DOMMatrix(gm));
+              collected.addPath(p, new DOMMatrix(mul(f.matrix, trm)));
             }
             if (draws && !outline) {
               ctx.globalAlpha = g.ca;
@@ -706,12 +705,14 @@ export class Interpreter {
 
   /** A glyph of a font that isn't embedded, drawn by the browser with a similar system font. */
   private systemGlyph(f: RenderFont, code: number, n: number, dev: Matrix, mode: number): void {
-    const text = f.system!.text(code, n);
+    const sys = f.system!;
+    const text = sys.text(code, n);
     if (!text.trim()) return;
     const S = 100;
     const ctx = this.target.ctx;
-    ctx.font = f.system!.css(S);
-    const natural = ctx.measureText(text).width / S;
+    ctx.font = sys.css(S);
+    let natural = sys.widths.get(code);
+    if (natural === undefined) sys.widths.set(code, (natural = ctx.measureText(text).width / S));
     const want = f.width(code);
     const sx = natural > 0 && want > 0 ? Math.min(2, Math.max(0.5, want / natural)) : 1;
     ctx.globalAlpha = this.gs.ca;

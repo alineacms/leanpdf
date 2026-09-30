@@ -1,7 +1,7 @@
 /**
  * renderPage: draw a page onto a canvas with the browser's Canvas 2D API. Works on the main
- * thread and in Web Workers (OffscreenCanvas). Only the page's own objects are read, fonts are
- * cached per document, and images are decoded at about the size they are drawn.
+ * thread and in Web Workers (OffscreenCanvas). Only the page's own objects are read, fonts and
+ * decoded images are cached per document, and images are decoded at about the size they are drawn.
  */
 import { pageContent } from '../core/content.ts';
 import type { PdfDocument } from '../core/document.ts';
@@ -9,6 +9,7 @@ import { PdfEncryptedError } from '../core/errors.ts';
 import { intOf, nameOf, numOf, PdfDict, PdfRef, type PdfObj } from '../core/objects.ts';
 import { walkPages } from '../core/pages.ts';
 import type { RenderFont } from './font.ts';
+import { ImageCache } from './image.ts';
 import { Interpreter, type RenderContext } from './interpret.ts';
 import { asMatrix, mul, transformBox, type Matrix } from './util.ts';
 
@@ -40,7 +41,8 @@ const MAX_CONTENT = 128 << 20;
 const MAX_SIDE = 16384;
 const MAX_AREA = 1 << 27;
 
-const fontCaches = new WeakMap<PdfDocument, Map<number, Promise<RenderFont>>>();
+/** Fonts and decoded images per document, kept across renders. */
+const caches = new WeakMap<PdfDocument, { fonts: Map<number, Promise<RenderFont>>; images: ImageCache }>();
 
 const norm = (b: number[]): number[] => [Math.min(b[0], b[2]), Math.min(b[1], b[3]), Math.max(b[0], b[2]), Math.max(b[1], b[3])];
 
@@ -130,9 +132,9 @@ export async function renderPage(doc: PdfDocument, pageIndex: number, canvas: HT
   }
 
   const warnings = new Set<string>();
-  let fonts = fontCaches.get(doc);
-  if (!fonts) fontCaches.set(doc, (fonts = new Map()));
-  const rc: RenderContext = { doc, signal: opts.signal, warn: (m) => warnings.add(m), visible: await optionalContent(doc), fonts };
+  let cache = caches.get(doc);
+  if (!cache) caches.set(doc, (cache = { fonts: new Map(), images: new ImageCache() }));
+  const rc: RenderContext = { doc, signal: opts.signal, warn: (m) => warnings.add(m), visible: await optionalContent(doc), ...cache };
   const interp = new Interpreter(rc, { ctx, ox: 0, oy: 0, w: W, h: H }, base);
   const run = { res: page.resources, base, depth: 0 };
   ctx.save();

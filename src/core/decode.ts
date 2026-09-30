@@ -1,4 +1,3 @@
-import { concat } from './bytes.ts';
 import type { PdfDocument } from './document.ts';
 import { inflateAll } from './flate.ts';
 import { intOf, nameOf, PdfDict, PdfRef, type PdfObj } from './objects.ts';
@@ -112,12 +111,14 @@ function lzw(d: Uint8Array, earlyChange: number, max: number): Uint8Array {
 function unpredict(d: Uint8Array, parms: PdfDict | undefined): Uint8Array {
   const predictor = parms ? (intOf(parms.get('Predictor')) ?? 1) : 1;
   if (predictor === 1) return d;
-  const rows: Uint8Array[] = [];
+  let out = new Uint8Array(0);
   const dec = new RowDecoder(predictor, intOf(parms!.get('Colors')) ?? 1, intOf(parms!.get('BitsPerComponent')) ?? 8, intOf(parms!.get('Columns')) ?? 1, (r) => {
-    rows.push(r.slice());
+    // PNG rows carry a filter byte, so there are at most d.length / rowBytes of them.
+    if (!out.length) out = new Uint8Array(Math.ceil(d.length / r.length) * r.length);
+    out.set(r, (dec.rows - 1) * r.length);
   });
   dec.push(d);
-  return concat(rows);
+  return out.subarray(0, dec.rows * dec.rowBytes);
 }
 
 /** Image codecs: undoing filters stops at them (`codec` in the result). */

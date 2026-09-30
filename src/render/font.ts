@@ -25,8 +25,11 @@ export interface RenderFont extends Font {
   /** Type 3 fonts: the glyph procedure of a code, and the font's resources. */
   proc?(code: number): PdfRef | undefined;
   resources?: PdfDict;
-  /** Fonts that aren't embedded (or couldn't be read): a CSS font at `size` px, and a code's text. */
-  system?: { css(size: number): string; text(code: number, n: number): string };
+  /**
+   * Fonts that aren't embedded (or couldn't be read): a CSS font at `size` px, a code's text, and
+   * the measured advances of codes' text (per px of font size).
+   */
+  system?: { css(size: number): string; text(code: number, n: number): string; widths: Map<number, number> };
 }
 
 const MAX_PROGRAM = 32 << 20;
@@ -181,7 +184,7 @@ export async function loadRenderFont(doc: PdfDocument, o: PdfObj | undefined): P
   const fallback = (name = '', flags = 0, weight?: number): RenderFont => ({
     ...base,
     matrix: [0.001, 0, 0, 0.001, 0, 0],
-    system: { css: systemFont(name, flags, weight), text: base.text },
+    system: { css: systemFont(name, flags, weight), text: base.text, widths: new Map() },
   });
   if (!(d instanceof PdfDict)) return fallback();
   try {
