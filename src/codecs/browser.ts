@@ -18,7 +18,7 @@ export class BrowserImageCodec implements ImageCodec {
       width === input.width && height === input.height ? {} : { resizeWidth: width, resizeHeight: height, resizeQuality: 'high' };
     const bitmapOpts: ImageBitmapOptions = { colorSpaceConversion: 'none', premultiplyAlpha: 'none', ...resize };
     const source: ImageBitmapSource =
-      input.kind === 'jpeg' ? new Blob([input.data as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' }) : toImageData(input);
+      input.kind === 'jpeg' ? new Blob([stripExif(input.data) as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' }) : toImageData(input);
     const bitmap = await createImageBitmap(source, bitmapOpts);
     try {
       const canvas = new OffscreenCanvas(width, height);
@@ -39,6 +39,33 @@ export class BrowserImageCodec implements ImageCodec {
       bitmap.close();
     }
   }
+}
+
+/**
+ * Remove APP1 Exif segments. Browsers apply EXIF orientation even with imageOrientation 'none',
+ * while PDF renderers ignore it, so the stored pixel order must win.
+ */
+export function stripExif(d: Uint8Array): Uint8Array {
+  const keep: Uint8Array[] = [];
+  let from = 0;
+  let i = 2;
+  while (i + 4 <= d.length && d[i] === 0xff) {
+    const m = d[i + 1];
+    if (m === 0xda || m === 0xd9) break;
+    const end = i + 2 + ((d[i + 2] << 8) | d[i + 3]);
+    // APP1 starting with "Exif"
+    if (m === 0xe1 && d[i + 4] === 0x45 && d[i + 5] === 0x78 && d[i + 6] === 0x69 && d[i + 7] === 0x66) {
+      keep.push(d.subarray(from, i));
+      from = end;
+    }
+    i = end;
+  }
+  if (!keep.length) return d;
+  keep.push(d.subarray(from));
+  const out = new Uint8Array(keep.reduce((n, k) => n + k.length, 0));
+  let o = 0;
+  for (const k of keep) out.set(k, (o += k.length) - k.length);
+  return out;
 }
 
 function toImageData(input: Extract<ImageInput, { kind: 'pixels' }>): ImageData {

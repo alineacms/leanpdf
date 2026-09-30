@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pdf-squeeze demo</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --text: #1d2330;
+      --muted: #5d6677;
+      --line: #dfe3ea;
+      --accent: #2458d6;
+      --accent-text: #ffffff;
+      --good: #1a7f4b;
+      --warn: #a15c00;
+      --bad: #b3261e;
+      --radius: 10px;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14171c;
+        --panel: #1d2128;
+        --text: #e7eaf0;
+        --muted: #9aa3b2;
+        --line: #313744;
+        --accent: #6b93ff;
+        --accent-text: #0d1320;
+        --good: #52c48a;
+        --warn: #e0a24a;
+        --bad: #ff7a70;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 1.5rem; margin: 0 0 4px; }
+    h2 { font-size: 1.05rem; margin: 0 0 12px; }
+    p.lead { margin: 0 0 20px; color: var(--muted); }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+    label { display: block; font-size: .9rem; color: var(--muted); margin-bottom: 4px; }
+    input[type=number] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+    input[type=range] { width: 100%; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 22px 12px; border: 2px dashed var(--line); border-radius: var(--radius); text-align: center; cursor: pointer; color: var(--muted); margin-bottom: 14px; }
+    .drop.over { border-color: var(--accent); color: var(--text); }
+    .drop strong { color: var(--text); word-break: break-all; }
+    .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    button { font: inherit; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .check { display: flex; gap: 8px; align-items: center; color: var(--text); font-size: .95rem; margin: 12px 0 0; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    progress { width: 100%; height: 10px; accent-color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+    th { font-weight: 500; color: var(--muted); width: 45%; }
+    tr:last-child th, tr:last-child td { border-bottom: 0; }
+    .big { font-size: 1.6rem; font-weight: 700; }
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    ul { margin: 0; padding-left: 18px; }
+    #mem-notes { font-size: .85rem; }
+    code { font-size: .85em; }
+    a.download { display: inline-block; margin-top: 12px; padding: 9px 16px; border-radius: 8px; background: var(--good); color: #fff; text-decoration: none; font-weight: 600; }
+    footer { color: var(--muted); font-size: .85rem; text-align: center; }
+    [hidden] { display: none !important; }
+    @media (max-width: 560px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .grid > :last-child { grid-column: 1 / -1; }
+      th { width: 50%; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PDF image compressor</h1>
+  <p class="lead">Downscales and re-encodes the images inside a PDF, entirely in your browser. Everything else is copied byte for byte.</p>
+
+  <section>
+    <label class="drop" id="drop" for="file">
+      <input type="file" id="file" accept="application/pdf,.pdf">
+      <span id="file-label">Choose a PDF or drop it here</span>
+      <span class="muted" id="file-size"></span>
+    </label>
+
+    <div class="grid">
+      <div>
+        <label for="max-width">Max width (px)</label>
+        <input type="number" id="max-width" min="1" step="1" value="1600">
+      </div>
+      <div>
+        <label for="max-height">Max height (px)</label>
+        <input type="number" id="max-height" min="1" step="1" value="1600">
+      </div>
+      <div>
+        <label for="quality">JPEG quality: <output id="quality-value">0.75</output></label>
+        <input type="range" id="quality" min="0.05" max="1" step="0.05" value="0.75">
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="gray" checked> Keep grayscale images gray (when the codec can)</label>
+
+    <div class="row" style="margin-top:16px">
+      <button class="primary" id="compress" disabled>Compress</button>
+      <button id="cancel" hidden>Cancel</button>
+      <button id="save-to" hidden title="Stream the result straight to a file instead of keeping it in memory">Save to file…</button>
+      <span class="muted" id="save-target"></span>
+    </div>
+  </section>
+
+  <section id="progress-section" hidden>
+    <h2>Progress</h2>
+    <progress id="progress" max="1" value="0"></progress>
+    <p class="muted" id="progress-text" style="margin:6px 0 0"></p>
+  </section>
+
+  <section id="memory-section">
+    <h2>Memory <span class="muted" style="font-weight:400">(sampled every 0.5 s)</span></h2>
+    <table>
+      <thead><tr><th>Source</th><td class="muted">Current · peak during last run</td></tr></thead>
+      <tbody id="mem-rows"></tbody>
+    </table>
+    <ul class="muted" id="mem-notes" style="margin:8px 0 0"></ul>
+  </section>
+
+  <section id="error" hidden>
+    <h2 class="bad">Something went wrong</h2>
+    <p id="error-text" style="margin:0"></p>
+  </section>
+
+  <section id="report" hidden>
+    <h2>Result</h2>
+    <p style="margin:0 0 10px"><span class="big good" id="saved-pct"></span> <span class="muted" id="saved-text"></span></p>
+    <table>
+      <tr><th>Input</th><td id="r-input"></td></tr>
+      <tr><th>Output</th><td id="r-output"></td></tr>
+      <tr><th>Images found</th><td id="r-seen"></td></tr>
+      <tr><th>Images recompressed</th><td id="r-recompressed"></td></tr>
+      <tr><th>Images skipped</th><td id="r-skipped"></td></tr>
+      <tr><th>Time</th><td id="r-time"></td></tr>
+      <tr><th>Peak memory</th><td id="r-memory"></td></tr>
+      <tr id="r-warnings-row" hidden><th>Warnings</th><td><ul id="r-warnings" class="warn"></ul></td></tr>
+    </table>
+    <a class="download" id="download" hidden>Download</a>
+    <p class="muted" id="saved-to" hidden style="margin:12px 0 0"></p>
+  </section>
+
+  <footer id="footer"></footer>
+</main>
+<script type="module" src="main.js"></script>
+</body>
+</html>
