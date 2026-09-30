@@ -16,7 +16,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benmerckx/pdf-compress.git"
+    "url": "git+https://github.com/benmerckx/leanpdf.git"
   },
   "license": "MIT",
   "type": "module",
