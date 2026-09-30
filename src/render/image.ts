@@ -6,7 +6,8 @@
  * stencil masks and color-key masks become the alpha channel.
  */
 import { ccittDecode } from '../core/ccitt.ts';
-import { decodeStream, type Decoded } from '../core/decode.ts';
+import { concat } from '../core/bytes.ts';
+import { openStream, type StreamedData } from '../core/decode.ts';
 import type { PdfDocument } from '../core/document.ts';
 import { intOf, numOf, PdfDict, PdfName, PdfRef, type PdfObj } from '../core/objects.ts';
 import { loadColorSpace, type ColorSpace } from './colorspace.ts';
@@ -20,16 +21,21 @@ export interface LoadedImage {
   interpolate: boolean;
 }
 
-/** A decoded image and the draw size it was decoded for (null: it can't be drawn). */
+/** An image being decoded or decoded for a w x h draw (null: it can't be drawn). */
 export interface CachedImage {
-  img: LoadedImage | null;
+  img: Promise<LoadedImage | null>;
   w: number;
   h: number;
+  /** What loading it warned about, for every render that draws it. */
+  warnings: string[];
+  /** Pixels held, once decoded. */
+  area?: number;
 }
 
-const area = (e: CachedImage) => (e.img ? e.img.source.width * e.img.source.height : 0);
-
-/** Decoded images of a document by object number, kept across renders up to `budget` pixels. */
+/**
+ * Decoded images of a document by object number, kept across renders up to `budget` pixels.
+ * Entries are promises, so a decode that is running is shared rather than started again.
+ */
 export class ImageCache {
   private readonly map = new Map<number, CachedImage>();
   private pixels = 0;
@@ -50,16 +56,26 @@ export class ImageCache {
   }
 
   set(num: number, e: CachedImage): void {
-    const old = this.map.get(num);
-    if (old) this.pixels -= area(old);
-    this.map.delete(num);
+    this.drop(num);
     this.map.set(num, e);
-    this.pixels += area(e);
-    for (const [k, v] of this.map) {
-      if (this.pixels <= this.budget || k === num) break;
-      this.map.delete(k);
-      this.pixels -= area(v);
-    }
+    e.img.then(
+      (img) => {
+        if (this.map.get(num) !== e) return;
+        e.area = img ? img.source.width * img.source.height : 0;
+        this.pixels += e.area;
+        for (const [k, v] of this.map) {
+          if (this.pixels <= this.budget || k === num) break;
+          this.drop(k);
+        }
+      },
+      // A failed load (a read error, say) isn't kept; whoever awaits it gets the error.
+      () => this.map.get(num) === e && this.drop(num),
+    );
+  }
+
+  private drop(num: number): void {
+    this.pixels -= this.map.get(num)?.area ?? 0;
+    this.map.delete(num);
   }
 }
 
@@ -143,25 +159,27 @@ interface Samples {
   /** Components per pixel. */
   n: number;
   decode: number[];
-  data: Uint8Array;
   /** Stencil: alpha where the (decoded) sample is 0. */
   stencil: boolean;
   /** Color-key ranges in sample values, [min, max] per component. */
   key?: number[];
 }
 
+/** Takes row `y` of samples (rowBytes long; valid only during the call). */
+type RowSink = (row: Uint8Array, y: number) => void;
+
 /** 8-bit DeviceRGB samples as they are: no /Decode, no color key. */
 const plainRgb = (s: Samples) => s.n === 3 && s.bpc === 8 && !!s.cs?.direct && !s.key && s.decode.every((v, i) => v === (i & 1));
 
 /**
- * Box-average samples before color conversion, straight from the data, where that gives the same
- * result: one-component spaces other than Indexed, and plain RGB. False for anything else.
+ * Box-average samples before color conversion, straight from the rows, where that gives the same
+ * result: one-component spaces other than Indexed, and plain RGB. Undefined for anything else.
  */
-function reduceSamples(s: Samples, fx: number, fy: number, rowBytes: number, o: Uint8ClampedArray): boolean {
-  const { w, h, bpc, n, data, decode, cs } = s;
-  if (s.stencil || s.key || !cs) return false;
+function sampleReducer(s: Samples, fx: number, fy: number, o: Uint8ClampedArray): RowSink | undefined {
+  const { w, h, bpc, n, decode, cs } = s;
+  if (s.stencil || s.key || !cs) return undefined;
   const gray = n === 1 && bpc <= 8 && cs.name !== 'Indexed';
-  if (!gray && !plainRgb(s)) return false;
+  if (!gray && !plainRgb(s)) return undefined;
   const ow = Math.ceil(w / fx);
   const max = (1 << bpc) - 1;
   const shift = 8 - bpc;
@@ -178,11 +196,10 @@ function reduceSamples(s: Samples, fx: number, fy: number, rowBytes: number, o: 
   const o32 = new Uint32Array(o.buffer, o.byteOffset, o.length >> 2);
   let rows = 0;
   let p = 0;
-  for (let y = 0; y < h; y++) {
-    const off = y * rowBytes;
-    if (bpc === 8) for (let i = 0; i < w * n; i++) col[i] += data[off + i];
-    else for (let x = 0, bit = 0; x < w; x++, bit += bpc) col[x] += (data[off + (bit >> 3)] >> (shift - (bit & 7))) & max;
-    if (++rows < fy && y < h - 1) continue;
+  return (row, y) => {
+    if (bpc === 8) for (let i = 0; i < w * n; i++) col[i] += row[i];
+    else for (let x = 0, bit = 0; x < w; x++, bit += bpc) col[x] += (row[bit >> 3] >> (shift - (bit & 7))) & max;
+    if (++rows < fy && y < h - 1) return;
     for (let c = 0, x = 0; c < ow; c++, p++) {
       const end = Math.min(w, x + fx);
       const cells = rows * (end - x);
@@ -207,16 +224,15 @@ function reduceSamples(s: Samples, fx: number, fy: number, rowBytes: number, o: 
     }
     col.fill(0);
     rows = 0;
-  }
-  return true;
+  };
 }
 
 /**
- * A reader for one row of samples at byte `off`, writing RGBA pixels to `d8` (or `d32`, the same
- * buffer) from pixel `p`. Returns it with whether alpha can be below 255.
+ * A converter of one row of samples to RGBA pixels in `d8` (or `d32`, the same buffer) from pixel
+ * `p`. Returns it with whether alpha can be below 255.
  */
-function rowReader(s: Samples): [(off: number, d8: Uint8ClampedArray, d32: Uint32Array, p: number) => void, boolean] {
-  const { w, bpc, n, data, decode, key } = s;
+function rowReader(s: Samples): [(row: Uint8Array, d8: Uint8ClampedArray, d32: Uint32Array, p: number) => void, boolean] {
+  const { w, bpc, n, decode, key } = s;
   const max = (1 << bpc) - 1;
   if (n === 1 && bpc <= 8) {
     // One component: a table from sample value to RGBA covers /Decode, color, key and stencil.
@@ -229,21 +245,21 @@ function rowReader(s: Samples): [(off: number, d8: Uint8ClampedArray, d32: Uint3
     const shift = 8 - bpc;
     const read =
       bpc === 8
-        ? (off: number, _: Uint8ClampedArray, d: Uint32Array, p: number) => {
-            for (let x = 0; x < w; x++) d[p + x] = lut[data[off + x]];
+        ? (row: Uint8Array, _: Uint8ClampedArray, d: Uint32Array, p: number) => {
+            for (let x = 0; x < w; x++) d[p + x] = lut[row[x]];
           }
-        : (off: number, _: Uint8ClampedArray, d: Uint32Array, p: number) => {
-            for (let x = 0, bit = 0; x < w; x++, bit += bpc) d[p + x] = lut[(data[off + (bit >> 3)] >> (shift - (bit & 7))) & max];
+        : (row: Uint8Array, _: Uint8ClampedArray, d: Uint32Array, p: number) => {
+            for (let x = 0, bit = 0; x < w; x++, bit += bpc) d[p + x] = lut[(row[bit >> 3] >> (shift - (bit & 7))) & max];
           };
     return [read, s.stencil || !!key];
   }
   if (plainRgb(s)) {
     return [
-      (off, d, _, p) => {
-        for (let x = 0, i = off, j = 4 * p; x < w; x++, i += 3, j += 4) {
-          d[j] = data[i];
-          d[j + 1] = data[i + 1];
-          d[j + 2] = data[i + 2];
+      (row, d, _, p) => {
+        for (let x = 0, i = 0, j = 4 * p; x < w; x++, i += 3, j += 4) {
+          d[j] = row[i];
+          d[j + 1] = row[i + 1];
+          d[j + 2] = row[i + 2];
           d[j + 3] = 255;
         }
       },
@@ -255,14 +271,14 @@ function rowReader(s: Samples): [(off: number, d8: Uint8ClampedArray, d32: Uint3
   const vals = new Float32Array(w * n);
   const raw = new Uint16Array(w * n);
   return [
-    (off, d, _, p) => {
+    (row, d, _, p) => {
       for (let i = 0, k = 0; i < w * n; i++, k = k + 1 === n ? 0 : k + 1) {
         let v: number;
-        if (bpc === 8) v = data[off + i];
-        else if (bpc === 16) v = (data[off + 2 * i] << 8) | data[off + 2 * i + 1];
+        if (bpc === 8) v = row[i];
+        else if (bpc === 16) v = (row[2 * i] << 8) | row[2 * i + 1];
         else {
           const bit = i * bpc;
-          v = (data[off + (bit >> 3)] >> (8 - bpc - (bit & 7))) & max;
+          v = (row[bit >> 3] >> (8 - bpc - (bit & 7))) & max;
         }
         raw[i] = v;
         vals[i] = lut ? lut[k][v] : decode[2 * k] + (v * (decode[2 * k + 1] - decode[2 * k])) / 65535;
@@ -282,59 +298,38 @@ function rowReader(s: Samples): [(off: number, d8: Uint8ClampedArray, d32: Uint3
   ];
 }
 
-/** Unpack samples into an RGBA canvas, averaging fx x fy blocks. */
-function rasterize(s: Samples, fx: number, fy: number): Canvas {
-  const { w, h, bpc, n } = s;
+/** Box-average RGBA rows into fx x fy blocks, premultiplied when there is alpha. */
+function rgbaReducer(s: Samples, fx: number, fy: number, o: Uint8ClampedArray): RowSink {
+  const { w, h } = s;
   const ow = Math.ceil(w / fx);
-  const oh = Math.ceil(h / fy);
-  const rowBytes = Math.ceil((w * n * bpc) / 8);
-  // Short data reads as zeros, and every read stays in bounds.
-  if (s.data.length < rowBytes * h) {
-    const full = new Uint8Array(rowBytes * h);
-    full.set(s.data);
-    s = { ...s, data: full };
-  }
-  const [c, ctx] = canvas(ow, oh);
-  const out = ctx.createImageData(ow, oh);
-  const o = out.data;
-  if ((fx > 1 || fy > 1) && reduceSamples(s, fx, fy, rowBytes, o)) {
-    ctx.putImageData(out, 0, 0);
-    return c;
-  }
   const [read, alpha] = rowReader(s);
-  if (fx === 1 && fy === 1) {
-    const o32 = new Uint32Array(o.buffer, o.byteOffset, o.length >> 2);
-    for (let y = 0; y < h; y++) read(y * rowBytes, o, o32, y * w);
-    ctx.putImageData(out, 0, 0);
-    return c;
-  }
-  const row = new Uint8ClampedArray(w * 4);
-  const row32 = new Uint32Array(row.buffer);
+  const px = new Uint8ClampedArray(w * 4);
+  const px32 = new Uint32Array(px.buffer);
   const col = Int32Array.from({ length: w }, (_, x) => Math.floor(x / fx) * 4);
   const acc = new Float64Array(ow * 4);
   let rows = 0;
   let p = 0;
-  for (let y = 0; y < h; y++) {
-    read(y * rowBytes, row, row32, 0);
+  return (row, y) => {
+    read(row, px, px32, 0);
     if (alpha) {
       // Premultiplied sums, so transparent pixels don't darken edges.
       for (let x = 0, i = 0; x < w; x++, i += 4) {
         const j = col[x];
-        const a = row[i + 3];
-        acc[j] += row[i] * a;
-        acc[j + 1] += row[i + 1] * a;
-        acc[j + 2] += row[i + 2] * a;
+        const a = px[i + 3];
+        acc[j] += px[i] * a;
+        acc[j + 1] += px[i + 1] * a;
+        acc[j + 2] += px[i + 2] * a;
         acc[j + 3] += a;
       }
     } else {
       for (let x = 0, i = 0; x < w; x++, i += 4) {
         const j = col[x];
-        acc[j] += row[i];
-        acc[j + 1] += row[i + 1];
-        acc[j + 2] += row[i + 2];
+        acc[j] += px[i];
+        acc[j + 1] += px[i + 1];
+        acc[j + 2] += px[i + 2];
       }
     }
-    if (++rows < fy && y < h - 1) continue;
+    if (++rows < fy && y < h - 1) return;
     for (let x = 0, j = 0; x < ow; x++, j += 4, p += 4) {
       const cells = rows * Math.min(fx, w - x * fx);
       if (alpha) {
@@ -352,9 +347,76 @@ function rasterize(s: Samples, fx: number, fy: number): Canvas {
     }
     acc.fill(0);
     rows = 0;
+  };
+}
+
+/** Bytes per row of samples. */
+const rowBytesOf = (s: Samples) => Math.ceil((s.w * s.n * s.bpc) / 8);
+
+/**
+ * Draws rows of samples into an RGBA canvas as they arrive, averaging fx x fy blocks, so the
+ * samples are never held whole. Rows that never arrive read as zeros.
+ */
+function rasterizer(s: Samples, fx: number, fy: number): { row(r: Uint8Array): boolean; end(): Canvas } {
+  const { w, h } = s;
+  const [c, ctx] = canvas(Math.ceil(w / fx), Math.ceil(h / fy));
+  const out = ctx.createImageData(c.width, c.height);
+  const o = out.data;
+  let sink: RowSink | undefined;
+  if (fx > 1 || fy > 1) sink = sampleReducer(s, fx, fy, o) ?? rgbaReducer(s, fx, fy, o);
+  else {
+    const [read] = rowReader(s);
+    const o32 = new Uint32Array(o.buffer, o.byteOffset, o.length >> 2);
+    sink = (row, y) => read(row, o, o32, y * w);
   }
-  ctx.putImageData(out, 0, 0);
-  return c;
+  let y = 0;
+  return {
+    /** Take the next row; true once all have arrived. */
+    row(r) {
+      if (y < h) sink(r, y++);
+      return y >= h;
+    },
+    end() {
+      const zero = new Uint8Array(rowBytesOf(s));
+      while (y < h) sink(zero, y++);
+      ctx.putImageData(out, 0, 0);
+      return c;
+    },
+  };
+}
+
+/** Cut pieces of a byte stream into rows of `size` bytes; whole rows pass through uncopied. */
+function rowsOf(size: number, onRow: (row: Uint8Array) => boolean): (chunk: Uint8Array) => boolean | void {
+  const part = new Uint8Array(size);
+  let fill = 0;
+  return (c) => {
+    let i = 0;
+    if (fill) {
+      i = Math.min(size - fill, c.length);
+      part.set(c.subarray(0, i), fill);
+      fill += i;
+      if (fill < size) return;
+      fill = 0;
+      if (onRow(part)) return true;
+    }
+    for (; i + size <= c.length; i += size) if (onRow(c.subarray(i, i + size))) return true;
+    if (i < c.length) {
+      part.set(c.subarray(i));
+      fill = c.length - i;
+    }
+  };
+}
+
+/** All of a stream's (codec-encoded) bytes, up to `max`; null when there are more. */
+async function collect(data: StreamedData, max: number): Promise<Uint8Array | null> {
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  await data.read((c) => {
+    parts.push(c.slice());
+    n += c.length;
+    return n > max;
+  });
+  return n > max ? null : concat(parts);
 }
 
 /**
@@ -390,7 +452,7 @@ async function browserJpeg(bytes: Uint8Array, w: number, h: number, tw: number, 
  * Decode an image to something drawImage takes, reduced toward `opts.width` x `opts.height`.
  * Null (with a warning) for images that can't be drawn: JPEG 2000 and JBIG2 for now, broken data.
  */
-export async function loadImage(doc: PdfDocument, get: ImageDict, data: Decoded | null, opts: ImageOptions): Promise<LoadedImage | null> {
+export async function loadImage(doc: PdfDocument, get: ImageDict, data: StreamedData | null, opts: ImageOptions): Promise<LoadedImage | null> {
   const w = intOf(await get('Width', 'W')) ?? 0;
   const h = intOf(await get('Height', 'H')) ?? 0;
   if (w <= 0 || h <= 0 || w * h > MAX_DATA || !data) return null;
@@ -398,7 +460,8 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Decoded 
   const interpolate = (await get('Interpolate', 'I')) === true;
   const decodeArr = await nums(doc, await get('Decode', 'D'));
   let source: Canvas | ImageBitmap | undefined;
-  let bytes = data.data;
+  // Samples decoded in memory (CCITT, JPEGs decoded here); otherwise the stream's rows are drawn as they arrive.
+  let bytes: Uint8Array | undefined;
   let bpc = stencil ? 1 : (intOf(await get('BitsPerComponent', 'BPC')) ?? 8);
   // Sample grid size: a JPEG decoded here may come out reduced.
   let sw = w;
@@ -409,20 +472,22 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Decoded 
   }
   const cs = stencil ? undefined : await loadColorSpace(doc, await get('ColorSpace', 'CS'), opts.colorSpaces);
   const n = stencil ? 1 : (cs?.n ?? 0);
-  if (data.codec === 'DCTDecode') {
+  const encoded = data.codec ? await collect(data, MAX_DATA) : undefined;
+  if (encoded === null) return null;
+  if (data.codec === 'DCTDecode' && encoded) {
     // Browsers read every CMYK JPEG as Adobe-inverted, while in PDF inversion is up to /Decode,
     // and know nothing of /ColorTransform. Those, stencil masks, and JPEGs the browser rejects
     // are decoded here, reduced by up to 8.
     const ratio = Math.min(w / Math.max(1, opts.width), h / Math.max(1, opts.height));
     const reduce = Math.max(0, Math.min(3, Math.floor(Math.log2(ratio))));
     const ct = intOf(data.parms?.get('ColorTransform'));
-    let jpeg = n === 4 || stencil || ct !== undefined ? decodeJpeg(bytes, reduce, ct) : null;
+    let jpeg = n === 4 || stencil || ct !== undefined ? decodeJpeg(encoded, reduce, ct) : null;
     if (jpeg?.components !== n) {
       jpeg = null;
       try {
-        source = await browserJpeg(bytes, w, h, opts.width, opts.height);
+        source = await browserJpeg(encoded, w, h, opts.width, opts.height);
       } catch {
-        const j = decodeJpeg(bytes, reduce, ct);
+        const j = decodeJpeg(encoded, reduce, ct);
         if (j?.components === n) jpeg = j;
       }
     }
@@ -447,8 +512,8 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Decoded 
       }
       if (stencil) source = grayToAlpha(source, source.width, source.height);
     }
-  } else if (data.codec === 'CCITTFaxDecode') {
-    const bits = ccittDecode(bytes, ccittParams(data.parms, w, h));
+  } else if (data.codec === 'CCITTFaxDecode' && encoded) {
+    const bits = ccittDecode(encoded, ccittParams(data.parms, w, h));
     if (!bits) {
       opts.warn('A fax-encoded image could not be decoded');
       return null;
@@ -458,7 +523,7 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Decoded 
     const full = Math.ceil(w / 8) * h;
     bytes = bits.length >= full ? bits : Uint8Array.from({ length: full }, (_, i) => (i < bits.length ? bits[i] : p.BlackIs1 ? 0 : 255));
     bpc = 1;
-  }
+  } else if (data.codec) return null;
   if (!source) {
     if (!stencil && !cs) {
       opts.warn('An image has an unsupported color space');
@@ -469,7 +534,12 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Decoded 
     const maskObj = stencil ? undefined : await get('Mask');
     const key = Array.isArray(maskObj) ? await nums(doc, maskObj) : undefined;
     const [fx, fy] = factors(sw, sh, opts.width, opts.height);
-    source = rasterize({ w: sw, h: sh, bpc, n, cs, decode, data: bytes, stencil, key: key && key.length >= 2 * n ? key : undefined }, fx, fy);
+    const samples: Samples = { w: sw, h: sh, bpc, n, cs, decode, stencil, key: key && key.length >= 2 * n ? key : undefined };
+    const r = rasterizer(samples, fx, fy);
+    const feed = rowsOf(rowBytesOf(samples), (row) => r.row(row));
+    if (bytes) feed(bytes);
+    else await data.read(feed);
+    source = r.end();
   }
 
   // Soft mask, or an explicit stencil mask, as the alpha channel.
@@ -498,7 +568,7 @@ async function loadMask(doc: PdfDocument, ref: PdfRef, soft: boolean, w: number,
   // A soft mask is read as a gray image; masks of masks are ignored.
   const get: ImageDict = async (k, a, raw) =>
     k === 'SMask' || k === 'Mask' ? undefined : soft && k === 'ColorSpace' ? GRAY : soft && k === 'ImageMask' ? false : raw ? d.get(k) : doc.resolve(d.get(k) ?? (a ? d.get(a) : undefined));
-  const img = await loadImage(doc, get, await decodeStream(doc, hdr, MAX_DATA), { ...opts, width: w, height: h });
+  const img = await loadImage(doc, get, await openStream(doc, hdr, MAX_DATA), { ...opts, width: w, height: h });
   if (!img) return null;
   if (img.stencil) return img.source instanceof OffscreenCanvas ? img.source : grayToAlpha(img.source, w, h);
   return grayToAlpha(img.source, img.source.width, img.source.height);

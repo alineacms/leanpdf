@@ -135,6 +135,29 @@ describe.skipIf(!!skip)('renderPage vs MuPDF', () => {
     await check('cmyk-jpeg', b.finish().build().bytes, { mae: 4, bad: 0.01 });
   });
 
+  test('images: in forms, drawn small then large, and in hidden optional content', async () => {
+    const b = new DocBuilder();
+    const rgb = synthesize({ width: 240, height: 160, components: 3, pattern: 'photo', seed: 5 });
+    const jpeg = new Uint8Array(await sharp(Buffer.from(rgb), { raw: { width: 240, height: 160, channels: 3 } }).jpeg({ quality: 90 }).toBuffer());
+    const A = b.stream('/Type /XObject /Subtype /Image /Width 240 /Height 160 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode', jpeg);
+    const B = b.stream('/Type /XObject /Subtype /Image /Width 240 /Height 160 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode', flate(rgb));
+    const J = b.stream('/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /JBIG2Decode', new Uint8Array(16));
+    const form = b.stream(`/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Matrix [200 0 0 120 10 10] /Resources << /XObject << /B ${B} 0 R >> >>`, bytes('q 1 0 0 1 0 0 cm /B Do Q'));
+    const ocg = b.obj('<< /Type /OCG /Name (Hidden) >>');
+    b.catalogExtra = ` /OCProperties << /OCGs [${ocg} 0 R] /D << /OFF [${ocg} 0 R] >> >>`;
+    const content = [
+      'q 60 0 0 40 20 300 cm /A Do Q',
+      'q 300 0 0 200 100 180 cm /A Do Q',
+      '/F Do',
+      `/OC /L BDC q 100 0 0 100 450 250 cm /J Do Q EMC`,
+    ].join('\n');
+    b.page({ width: 600, height: 400, content, xobjects: { A, F: form, J }, resources: ` /Properties << /L ${ocg} 0 R >>` });
+    const pdf = b.finish().build().bytes;
+    await check('images-prefetch', pdf, { mae: 4, bad: 0.01 });
+    // The hidden JBIG2 image is neither drawn nor reported.
+    expect((await session!.ours(pdf)).warnings).toEqual([]);
+  });
+
   test('text: fonts that are not embedded', async () => {
     const b = new DocBuilder();
     const fonts = ['Helvetica', 'Times-Roman', 'Courier', 'Helvetica-Bold'].map((f) => b.obj(`<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding >>`));

@@ -1,5 +1,5 @@
 import type { PdfDocument } from './document.ts';
-import { inflateAll } from './flate.ts';
+import { inflateAll, inflateRange } from './flate.ts';
 import { intOf, nameOf, PdfDict, PdfRef, type PdfObj } from './objects.ts';
 import type { ObjHeader } from './objread.ts';
 import { RowDecoder } from './predictor.ts';
@@ -123,6 +123,7 @@ function unpredict(d: Uint8Array, parms: PdfDict | undefined): Uint8Array {
 
 /** Image codecs: undoing filters stops at them (`codec` in the result). */
 const CODECS: Record<string, string> = { DCT: 'DCTDecode', CCF: 'CCITTFaxDecode', DCTDecode: 'DCTDecode', CCITTFaxDecode: 'CCITTFaxDecode', JPXDecode: 'JPXDecode', JBIG2Decode: 'JBIG2Decode' };
+const codecOf = (name: string | undefined): string | undefined => (name && Object.hasOwn(CODECS, name) ? CODECS[name] : undefined);
 
 /** Stream data with its non-image filters undone, and the image codec that remains, if any. */
 export interface Decoded {
@@ -141,7 +142,7 @@ export async function decodeFilters(data: Uint8Array, filters: (string | undefin
   for (let i = 0; i < filters.length; i++) {
     const name = ALIASES[filters[i] ?? ''] ?? filters[i];
     const p = parms[i];
-    const codec = CODECS[name ?? ''];
+    const codec = codecOf(name);
     if (codec) return { data, codec, parms: p };
     if (name === 'FlateDecode') {
       const ds = new Response(new Blob([data as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('deflate')));
@@ -156,39 +157,131 @@ export async function decodeFilters(data: Uint8Array, filters: (string | undefin
   return { data };
 }
 
-/**
- * A stream's data with its filters undone (Flate, LZW, ASCIIHex, ASCII85, RunLength and
- * predictors), stopping at an image codec. Null if a filter isn't supported, the data exceeds `max`
- * bytes, or it can't be decoded.
- */
-export async function decodeStream(doc: PdfDocument, stream: PdfRef | ObjHeader, max = 64 << 20): Promise<Decoded | null> {
+/** A stream's header, data span and filters with their parameters (names unabbreviated). */
+async function streamInfo(doc: PdfDocument, stream: PdfRef | ObjHeader) {
   const hdr = stream instanceof PdfRef ? await doc.header(stream.num) : stream;
   if (!hdr || !hdr.stream) return null;
   const d = hdr.value as PdfDict;
   const span = await doc.span(hdr, doc.reader.size);
   if (span.dataEnd < 0) return null;
   const f = await doc.resolve(d.get('Filter'));
-  const filters = (Array.isArray(f) ? f : f === undefined || f === null ? [] : [f]).map((x) => nameOf(x as PdfObj));
+  const filters = (Array.isArray(f) ? f : f === undefined || f === null ? [] : [f]).map((x) => {
+    const name = nameOf(x as PdfObj);
+    return name && Object.hasOwn(ALIASES, name) ? ALIASES[name] : name;
+  });
   const dp = await doc.resolve(d.get('DecodeParms'));
   const parms: (PdfDict | undefined)[] = [];
   for (let i = 0; i < filters.length; i++) {
     const p = await doc.resolve(Array.isArray(dp) ? dp[i] : i === 0 ? dp : undefined);
     parms.push(p instanceof PdfDict ? p : undefined);
   }
-  const len = span.dataEnd - span.dataStart;
-  if (len > max) return null;
+  return { hdr, start: span.dataStart, len: span.dataEnd - span.dataStart, filters, parms };
+}
+
+const passThrough = (e: unknown) => e instanceof Error && (e.name === 'SourceReadError' || e.name === 'AbortError');
+
+/**
+ * A stream's data with its filters undone (Flate, LZW, ASCIIHex, ASCII85, RunLength and
+ * predictors), stopping at an image codec. Null if a filter isn't supported, the data exceeds `max`
+ * bytes, or it can't be decoded.
+ */
+export async function decodeStream(doc: PdfDocument, stream: PdfRef | ObjHeader, max = 64 << 20): Promise<Decoded | null> {
+  const info = await streamInfo(doc, stream);
+  if (!info || info.len > max) return null;
+  const { start, len, filters, parms } = info;
   try {
     // The first Flate filter streams from the file, so compressed data is never held whole.
-    if ((ALIASES[filters[0] ?? ''] ?? filters[0]) === 'FlateDecode') {
-      const r = await inflateAll(doc.reader, span.dataStart, len, max);
+    if (filters[0] === 'FlateDecode') {
+      const r = await inflateAll(doc.reader, start, len, max);
       if (r.data.length > max) return null;
       return await decodeFilters(unpredict(r.data, parms[0]), filters.slice(1), parms.slice(1), max);
     }
-    return await decodeFilters(await doc.reader.raw(span.dataStart, len), filters, parms, max);
+    return await decodeFilters(await doc.reader.raw(start, len), filters, parms, max);
   } catch (e) {
-    if (e instanceof Error && (e.name === 'SourceReadError' || e.name === 'AbortError')) throw e;
+    if (passThrough(e)) throw e;
     return null;
   }
+}
+
+/**
+ * Decoded stream data handed over in pieces as it decodes. A piece may be a reused buffer, valid
+ * only during the callback.
+ */
+export interface StreamedData {
+  /** As in Decoded: an image codec the pieces are still encoded with. */
+  codec?: string;
+  parms?: PdfDict;
+  /**
+   * Hand the data to `onChunk` in order (return true to stop). Call once. Resolves false when the
+   * data was cut short by damage; what decoded before it has been delivered.
+   */
+  read(onChunk: (chunk: Uint8Array) => boolean | void): Promise<boolean>;
+}
+
+/** Data already in memory, as StreamedData. */
+export const streamed = (d: Decoded): StreamedData => ({
+  codec: d.codec,
+  parms: d.parms,
+  read: async (onChunk) => {
+    onChunk(d.data);
+    return true;
+  },
+});
+
+const RAW_CHUNK = 256 * 1024;
+
+/**
+ * A stream's data as it decodes, for consumers that take it in pieces, such as image rows. With
+ * no filter, or a single Flate filter (and predictor), the data streams from the file and is never
+ * held whole: predicted data arrives row by row. Other filter chains decode in memory first.
+ * Null as for decodeStream (`max` bounds only what is decoded in memory).
+ */
+export async function openStream(doc: PdfDocument, stream: PdfRef | ObjHeader, max = 64 << 20): Promise<StreamedData | null> {
+  const info = await streamInfo(doc, stream);
+  if (!info) return null;
+  const { start, len, filters, parms } = info;
+  const last = filters.length - 1;
+  const codec = codecOf(filters[last]);
+  const plain = filters.length - (codec ? 1 : 0);
+  const out = { codec, parms: codec ? parms[last] : undefined };
+  if (plain === 0) {
+    return {
+      ...out,
+      async read(onChunk) {
+        for (let pos = start; pos < start + len; ) {
+          const b = await doc.reader.raw(pos, Math.min(RAW_CHUNK, start + len - pos));
+          if (!b.length || onChunk(b) === true) break;
+          pos += b.length;
+        }
+        return true;
+      },
+    };
+  }
+  if (plain === 1 && filters[0] === 'FlateDecode') {
+    const p = parms[0];
+    const predictor = p ? (intOf(p.get('Predictor')) ?? 1) : 1;
+    let onRow: (r: Uint8Array) => boolean | void = () => {};
+    let dec: RowDecoder | undefined;
+    try {
+      if (predictor !== 1) dec = new RowDecoder(predictor, intOf(p!.get('Colors')) ?? 1, intOf(p!.get('BitsPerComponent')) ?? 8, intOf(p!.get('Columns')) ?? 1, (r) => onRow(r));
+    } catch {
+      return null;
+    }
+    return {
+      ...out,
+      async read(onChunk) {
+        onRow = onChunk;
+        try {
+          return await inflateRange(doc.reader, start, len, dec ? (c) => dec.push(c) : onChunk);
+        } catch (e) {
+          if (passThrough(e)) throw e;
+          return false;
+        }
+      },
+    };
+  }
+  const d = await decodeStream(doc, info.hdr, max);
+  return d && streamed(d);
 }
 
 /**

@@ -5,7 +5,7 @@
  * groups and soft masks are drawn on offscreen layers that are then composited.
  */
 import { readArray, readDict, readInlineImage, type Operand } from '../core/content.ts';
-import { decodeFilters, decodeStream, readStream, type Decoded } from '../core/decode.ts';
+import { decodeFilters, openStream, readStream, streamed, type StreamedData } from '../core/decode.ts';
 import type { PdfDocument } from '../core/document.ts';
 import { isFatal } from '../core/errors.ts';
 import { Lexer, T_AOPEN, T_DOPEN, T_EOF, T_KW, T_NAME, T_NUM, T_STR } from '../core/lexer.ts';
@@ -14,18 +14,26 @@ import { stringBytes } from '../core/strings.ts';
 import { loadColorSpace, type ColorSpace } from './colorspace.ts';
 import { loadRenderFont, type RenderFont } from './font.ts';
 import { loadFunction } from './function.ts';
-import { loadImage, type ImageCache, type ImageDict } from './image.ts';
+import { loadImage, type CachedImage, type ImageCache, type ImageDict } from './image.ts';
 import { maskToAlpha, paintShading, setT } from './paint.ts';
 import { loadShading, type ShadingPaint } from './shading.ts';
 import { asMatrix, blendMode, canvas, css, IDENTITY, intersect, invert, mul, pixelBox, scaleOf, transformBox, type Box, type Canvas, type Ctx, type Matrix } from './util.ts';
 
 type Ctx2D = Ctx | CanvasRenderingContext2D;
 
+/** Might a content stream use the Do operator? A quick byte scan. */
+function hasDo(d: Uint8Array): boolean {
+  for (let i = d.indexOf(0x44); i >= 0; i = d.indexOf(0x44, i + 1)) if (d[i + 1] === 0x6f && (i === 0 || d[i - 1] <= 0x20) && !(d[i + 2] > 0x20)) return true;
+  return false;
+}
+
 /** Tokens interpreted per page, Form XObjects and patterns included. */
 const MAX_TOKENS = 20_000_000;
 const MAX_CONTENT = 128 << 20;
 const MAX_DEPTH = 12;
 const MAX_STACK = 1024;
+/** Image loads the prefetch pass keeps running at once. */
+const PREFETCH = 4;
 /** Largest tiling pattern cell, per side, in pixels. */
 const MAX_CELL = 2048;
 
@@ -474,18 +482,97 @@ export class Interpreter {
 
   // ------------------------------------------------------------------ images
 
-  private async drawImage(get: ImageDict, data: () => Promise<Decoded | null>, cacheKey: number, run: Run): Promise<void> {
+  /**
+   * The image for a draw with matrix `m` (unit square to device): from the document's cache when
+   * one there, decoded or decoding, is about as large, else loaded (and cached unless `key` < 0).
+   */
+  private loadCached(get: ImageDict, data: () => Promise<StreamedData | null>, key: number, res: PdfDict | undefined, m: Matrix): CachedImage {
+    const w = Math.hypot(m[0], m[1]);
+    const h = Math.hypot(m[2], m[3]);
+    const hit = key >= 0 ? this.rc.images.get(key) : undefined;
+    if (hit && hit.w >= w * 0.9 && hit.h >= h * 0.9) return hit;
+    const doc = this.rc.doc;
+    const warnings: string[] = [];
+    const img = (async () => {
+      const cs = await doc.resolve(res?.get('ColorSpace'));
+      return loadImage(doc, get, await data(), { width: w, height: h, colorSpaces: cs instanceof PdfDict ? cs : undefined, warn: (x) => warnings.push(x) });
+    })();
+    const entry = { img, w, h, warnings };
+    if (key >= 0) this.rc.images.set(key, entry);
+    return entry;
+  }
+
+  /**
+   * Before a page runs, start loading the images it draws at their drawn sizes, so JPEGs, which
+   * the browser decodes off-thread, decode side by side rather than one after another. Follows only
+   * q, Q, cm and Do (into Form XObjects, two deep); images in optional content are left to the run.
+   */
+  async prefetch(data: Uint8Array, res: PdfDict | undefined, ctm: Matrix, depth = 0, slots = { free: PREFETCH, waiting: [] as (() => void)[] }): Promise<void> {
+    if (!hasDo(data)) return;
+    const doc = this.rc.doc;
+    const draws: [string, Matrix][] = [];
+    const lex = new Lexer(data, 0, true);
+    const stack: Matrix[] = [];
+    const nums: number[] = [];
+    const names: string[] = [];
+    const marked: boolean[] = [];
+    let hidden = 0;
+    for (let i = 0; i < MAX_TOKENS; i++) {
+      const t = lex.next();
+      if (t.t === T_EOF) break;
+      if (t.t === T_NUM) nums.push(t.v as number);
+      else if (t.t === T_NAME) names.push(t.v as string);
+      else if (t.t === T_AOPEN) readArray(lex);
+      else if (t.t === T_DOPEN) readDict(lex, t.s);
+      if (t.t !== T_KW) continue;
+      const k = t.v as string;
+      if (k === 'q') stack.push(ctm);
+      else if (k === 'Q') ctm = stack.pop() ?? ctm;
+      else if (k === 'cm') ctm = mul(asMatrix(nums.slice(-6)) ?? IDENTITY, ctm);
+      else if (k === 'Do' && !hidden && names.length) draws.push([names[names.length - 1], ctm]);
+      else if (k === 'BI') readInlineImage(lex);
+      else if (k === 'BMC' || k === 'BDC') {
+        const oc = k === 'BDC' && names[0] === 'OC';
+        marked.push(oc);
+        if (oc) hidden++;
+      } else if (k === 'EMC' && marked.pop()) hidden--;
+      nums.length = names.length = 0;
+    }
+    const xobjects = await doc.resolve(res?.get('XObject'));
+    if (!(xobjects instanceof PdfDict)) return;
+    for (const [name, m] of draws) {
+      const ref = xobjects.get(name);
+      if (this.rc.signal?.aborted || !(ref instanceof PdfRef)) continue;
+      const hdr = await doc.header(ref.num);
+      const d = hdr?.value;
+      if (!hdr?.stream || !(d instanceof PdfDict) || d.get('OC') !== undefined) continue;
+      const sub = nameOf(await doc.resolve(d.get('Subtype')));
+      if (sub === 'Form' && depth < 2) {
+        const fm = await doc.resolve(d.get('Matrix'));
+        const matrix = (Array.isArray(fm) && asMatrix(await Promise.all(fm.map((x) => doc.resolve(x))))) || IDENTITY;
+        const fres = await doc.resolve(d.get('Resources'));
+        const content = await readStream(doc, hdr, MAX_CONTENT);
+        if (content) await this.prefetch(content, fres instanceof PdfDict ? fres : res, mul(matrix, m), depth + 1, slots);
+      } else if (sub === 'Image') {
+        while (!slots.free) await new Promise<void>((r) => slots.waiting.push(r));
+        slots.free--;
+        const get: ImageDict = async (k, _a, raw) => (raw ? d.get(k) : doc.resolve(d.get(k)));
+        const { img } = this.loadCached(get, () => openStream(doc, hdr, 1 << 28), ref.num, res, mul([1, 0, 0, -1, 0, 1], m));
+        img.catch(() => {}).finally(() => {
+          slots.free++;
+          slots.waiting.shift()?.();
+        });
+      }
+    }
+  }
+
+  private async drawImage(get: ImageDict, data: () => Promise<StreamedData | null>, cacheKey: number, run: Run): Promise<void> {
     const m = mul([1, 0, 0, -1, 0, 1], this.gs.ctm);
     const w = Math.hypot(m[0], m[1]);
     const h = Math.hypot(m[2], m[3]);
-    let entry = cacheKey >= 0 ? this.rc.images.get(cacheKey) : undefined;
-    if (!entry || entry.w < w * 0.9 || entry.h < h * 0.9) {
-      const cs = await this.rc.doc.resolve(run.res?.get('ColorSpace'));
-      const img = await loadImage(this.rc.doc, get, await data(), { width: w, height: h, colorSpaces: cs instanceof PdfDict ? cs : undefined, warn: this.rc.warn });
-      entry = { img, w, h };
-      if (cacheKey >= 0) this.rc.images.set(cacheKey, entry);
-    }
-    const img = entry.img;
+    const entry = this.loadCached(get, data, cacheKey, run.res, m);
+    const img = await entry.img;
+    for (const warning of entry.warnings) this.rc.warn(warning);
     if (!img || this.hidden) return;
     const g = this.gs;
     const draw = (ctx: Ctx2D, src: CanvasImageSource = img.source) => {
@@ -539,7 +626,10 @@ export class Interpreter {
     const cs = await get('ColorSpace', 'CS');
     const res = cs instanceof PdfName && !/^(G|RGB|CMYK|I|Device\w+|Indexed)$/.test(cs.name) ? await this.resource(run, 'ColorSpace', cs.name) : undefined;
     const get2: ImageDict = res === undefined ? get : async (k, a) => (k === 'ColorSpace' ? doc.resolve(res) : get(k, a));
-    await this.drawImage(get2, () => decodeFilters(data, filters, parms, 1 << 26), -1, run);
+    await this.drawImage(get2, async () => {
+      const d = await decodeFilters(data, filters, parms, 1 << 26);
+      return d && streamed(d);
+    }, -1, run);
   }
 
   // ------------------------------------------------------------------ XObjects
@@ -555,7 +645,7 @@ export class Interpreter {
     const sub = nameOf(await doc.resolve(d.get('Subtype')));
     if (sub === 'Image') {
       const get: ImageDict = async (k, _a, raw) => (raw ? d.get(k) : doc.resolve(d.get(k)));
-      await this.drawImage(get, () => decodeStream(doc, hdr, 1 << 28), ref.num, run);
+      await this.drawImage(get, () => openStream(doc, hdr, 1 << 28), ref.num, run);
     } else if (sub === 'Form') await this.form(ref, run, run.depth);
   }
 

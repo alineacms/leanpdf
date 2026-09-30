@@ -137,8 +137,11 @@ export async function renderPage(doc: PdfDocument, pageIndex: number, canvas: HT
   const rc: RenderContext = { doc, signal: opts.signal, warn: (m) => warnings.add(m), visible: await optionalContent(doc), ...cache };
   const interp = new Interpreter(rc, { ctx, ox: 0, oy: 0, w: W, h: H }, base);
   const run = { res: page.resources, base, depth: 0 };
+  const content = await pageContent(doc, page.dict.get('Contents'), MAX_CONTENT);
+  // Images start decoding while the page runs, side by side where the browser decodes them.
+  interp.prefetch(content, page.resources, base).catch(() => {});
   ctx.save();
-  await interp.run(await pageContent(doc, page.dict.get('Contents'), MAX_CONTENT), run);
+  await interp.run(content, run);
   ctx.restore();
 
   if (opts.annotations !== false) {

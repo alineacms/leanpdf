@@ -137,9 +137,10 @@ const { width, height, warnings } = await renderPage(doc, 0, canvas, { scale: 2 
 
 The browser does the drawing through Canvas 2D, on the main thread or in a worker. leanpdf
 interprets the page and turns embedded fonts (TrueType, OpenType, CFF, Type 1, Type 3) into
-outlines; fonts that aren't embedded use a similar system font. Images are decoded at about the
-size they're drawn and cached per document. JPEGs go to the browser's decoder, except CMYK ones,
-which browsers invert: leanpdf decodes those itself.
+outlines; fonts that aren't embedded use a similar system font. Images stream from the file
+straight to about the size they're drawn, a page's JPEGs decode in parallel, and decoded images
+are cached per document. JPEGs go to the browser's decoder, except CMYK ones, which browsers
+invert: leanpdf decodes those itself.
 
 | Option | Default | |
 |---|---|---|
@@ -276,11 +277,11 @@ Bundlers keep only what you import. Minified sizes, including the core each need
 | `openPdf` + `getInfo` | 29.3 KB | 11.6 KB |
 | `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 30.8 KB | 11.9 KB |
 | `openPdf` + `extractText` | 46.6 KB | 20.0 KB |
-| `openPdf` + `renderPage` | 128.6 KB | 54.1 KB |
+| `openPdf` + `renderPage` | 132.0 KB | 55.3 KB |
 | `rewritePdf` + all editing plugins | 49.6 KB | 18.7 KB |
 | `mergePdfs` | 40.6 KB | 15.7 KB |
 | `decryptPdf` | 42.7 KB | 17.0 KB |
-| everything | 222.5 KB | 89.2 KB |
+| everything | 225.8 KB | 90.4 KB |
 
 ### I/O
 
