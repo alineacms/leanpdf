@@ -9,6 +9,7 @@ import type { CompressOptions, ImageCodec, ImageInput, ImageOutput, RecompressOp
 import { E_COMPRESSED, E_FREE, E_OFFSET } from '../../src/core/xref.ts';
 import { BASE_OBJECTS, BytesSink, BytesSource, latin1Bytes, miniPdf, type MiniObject } from './util.ts';
 import { deflateSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 import { GrayDownscaler } from '../../src/core/resize.ts';
 
 const SMALL_JPEG = new Uint8Array(await sharp({ create: { width: 16, height: 12, channels: 3, background: '#c83' } }).jpeg().toBuffer());
@@ -329,4 +330,34 @@ test('a truncated encrypted file is still refused, not copied as if it were plai
   const objs = [...BASE_OBJECTS, { num: 5, body: '<< /Filter /Standard /V 2 /R 3 /Length 128 /O <00112233> /U <44556677> /P -4 >>' }];
   const { text } = miniPdf(objs, '/Root 1 0 R /Encrypt 5 0 R');
   await expect(run(text.slice(0, text.indexOf('xref')))).rejects.toBeInstanceOf(PdfEncryptedError);
+});
+
+describe('JPEG 2000', () => {
+  const jpx = (f: string) => Buffer.from(readFileSync(new URL(`../render/fixtures/jpx/${f}`, import.meta.url))).toString('latin1');
+  const doc = (file: string, dict: string) => {
+    const data = jpx(file);
+    const objs = imageDoc();
+    objs[4] = { num: 5, body: `<< /Type /XObject /Subtype /Image /Width 88 /Height 64 /Filter /JPXDecode ${dict}/Length ${data.length} >>\nstream\n${data}\nendstream` };
+    return miniPdf(objs, '/Root 1 0 R').text;
+  };
+
+  test('decoded and handed to the codec as pixels, color space from the codestream', async () => {
+    const { report, codec, text } = await run(doc('rgb-97.jp2', ''), { minImageBytes: 0 });
+    expect(report.imagesRecompressed).toBe(1);
+    const input = (codec as FakeCodec).inputs[0];
+    expect([input.kind, input.width, input.height, input.components]).toEqual(['pixels', 88, 64, 3]);
+    expect(text).toContain('/Filter /DCTDecode');
+    expect(text).toContain('/ColorSpace /DeviceRGB');
+  });
+
+  test('decoded at a reduced resolution when it will be shrunk anyway', async () => {
+    const { codec } = await run(doc('gray-97.j2k', '/ColorSpace /DeviceGray '), { minImageBytes: 0, maxWidth: 30, maxHeight: 30 });
+    const input = (codec as FakeCodec).inputs[0];
+    expect([input.width, input.height, input.components]).toEqual([44, 32, 1]);
+  });
+
+  test('alpha in the codestream (SMaskInData) is left alone', async () => {
+    const { report } = await run(doc('rgba-97.jp2', '/SMaskInData 1 '), { minImageBytes: 0 });
+    expect(report.imagesSkipped).toEqual({ jpx: 1 });
+  });
 });

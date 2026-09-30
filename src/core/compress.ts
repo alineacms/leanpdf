@@ -58,7 +58,7 @@ export function compressImages(options: CompressImagesOptions): Plugin & { repor
   // Fatal errors (source read failures) reject; everything else keeps the original image.
   const processImage = async (doc: PdfDocument, hdr: ObjHeader, span: ObjSpan, plan: ImagePlan): Promise<ImageResult> => {
     try {
-      const input = await loadImage(doc, span, plan);
+      const input = await loadImage(doc, span, plan, fitInside(plan.width, plan.height, recompress.maxWidth, recompress.maxHeight));
       if (typeof input === 'string') return { reason: input };
       let out;
       try {

@@ -160,7 +160,8 @@ const JPX_FIXTURE = join(HERE, 'fixtures', 'gradient.jp2');
 const SKIP_ENCODINGS: Expect = {
   recompressed: 0,
   skipped: {
-    bitsPerComponent: 1, decode: 1, colorKeyMask: 1, jpx: 1, jbig2: 1, ccitt: 1, imageMask: 1, small: 1,
+    // The JPEG 2000 image is recompressible, but below minImageBytes.
+    bitsPerComponent: 1, decode: 1, colorKeyMask: 1, jbig2: 1, ccitt: 1, imageMask: 1, small: 2,
     jpegTransform: 2, jpegUnsupported: 1, noGain: 1, filter: 1, predictor: 1,
   },
   staticPages: [0, 1, 2],

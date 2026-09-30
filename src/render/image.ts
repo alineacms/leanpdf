@@ -466,15 +466,50 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Streamed
   // Sample grid size: a JPEG decoded here may come out reduced.
   let sw = w;
   let sh = h;
-  if (data.codec === 'JPXDecode' || data.codec === 'JBIG2Decode') {
-    opts.warn(data.codec === 'JPXDecode' ? 'JPEG 2000 images are not supported yet' : 'JBIG2 images are not supported yet');
+  if (data.codec === 'JBIG2Decode') {
+    opts.warn('JBIG2 images are not supported yet');
     return null;
   }
-  const cs = stencil ? undefined : await loadColorSpace(doc, await get('ColorSpace', 'CS'), opts.colorSpaces);
-  const n = stencil ? 1 : (cs?.n ?? 0);
+  let cs = stencil ? undefined : await loadColorSpace(doc, await get('ColorSpace', 'CS'), opts.colorSpaces);
+  let n = stencil ? 1 : (cs?.n ?? 0);
   const encoded = data.codec ? await collect(data, MAX_DATA) : undefined;
   if (encoded === null) return null;
-  if (data.codec === 'DCTDecode' && encoded) {
+  // JPEG 2000 alpha (/SMaskInData), as 8-bit samples of the decoded size.
+  let jpxAlpha: Uint8Array | undefined;
+  let decode = decodeArr;
+  if (data.codec === 'JPXDecode' && encoded) {
+    // Loaded on first use: JPEG 2000 is rare and its decoder is the largest part of rendering.
+    const { decodeJpx } = await import('../core/jpx.ts');
+    const ratio = Math.min(w / Math.max(1, opts.width), h / Math.max(1, opts.height));
+    const j = decodeJpx(encoded, { reduce: Math.max(0, Math.floor(Math.log2(ratio))), maxPixels: MAX_DATA });
+    const channels = j ? j.components - (j.alpha === undefined ? 0 : 1) : 0;
+    // The image's color space when it has one, else the codestream's (8.9.5.3); /Decode applies only to masks.
+    if (!stencil) decode = undefined;
+    if (!stencil && !(cs && cs.n <= channels)) {
+      cs = await loadColorSpace(doc, new PdfName(j?.colorSpace === 'cmyk' || channels === 4 ? 'DeviceCMYK' : channels >= 3 ? 'DeviceRGB' : 'DeviceGray'));
+      n = cs!.n;
+    }
+    if (!j || channels < n) {
+      opts.warn('A JPEG 2000 image could not be decoded');
+      return null;
+    }
+    const nc = j.components;
+    const px = j.width * j.height;
+    bytes = j.data;
+    if (nc !== n) {
+      // Color channels only, in order; the alpha channel goes to jpxAlpha.
+      const color = Array.from({ length: nc }, (_, k) => k).filter((k) => k !== j.alpha).slice(0, n);
+      bytes = new Uint8Array(px * n);
+      for (let i = 0; i < px; i++) for (let k = 0; k < n; k++) bytes[i * n + k] = j.data[i * nc + color[k]];
+    }
+    if (j.alpha !== undefined && numOf(await get('SMaskInData')) && !(await get('SMask', undefined, true))) {
+      jpxAlpha = new Uint8Array(px);
+      for (let i = 0; i < px; i++) jpxAlpha[i] = j.data[i * nc + j.alpha];
+    }
+    sw = j.width;
+    sh = j.height;
+    bpc = 8;
+  } else if (data.codec === 'DCTDecode' && encoded) {
     // Browsers read every CMYK JPEG as Adobe-inverted, while in PDF inversion is up to /Decode,
     // and know nothing of /ColorTransform. Those, stencil masks, and JPEGs the browser rejects
     // are decoded here, reduced by up to 8.
@@ -530,16 +565,21 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Streamed
       return null;
     }
     if (![1, 2, 4, 8, 16].includes(bpc) || n < 1) return null;
-    const decode = decodeArr && decodeArr.length >= 2 * n ? decodeArr : stencil ? [0, 1] : cs!.defaultDecode(bpc);
+    const dec = decode && decode.length >= 2 * n ? decode : stencil ? [0, 1] : cs!.defaultDecode(bpc);
     const maskObj = stencil ? undefined : await get('Mask');
     const key = Array.isArray(maskObj) ? await nums(doc, maskObj) : undefined;
     const [fx, fy] = factors(sw, sh, opts.width, opts.height);
-    const samples: Samples = { w: sw, h: sh, bpc, n, cs, decode, stencil, key: key && key.length >= 2 * n ? key : undefined };
+    const samples: Samples = { w: sw, h: sh, bpc, n, cs, decode: dec, stencil, key: key && key.length >= 2 * n ? key : undefined };
     const r = rasterizer(samples, fx, fy);
     const feed = rowsOf(rowBytesOf(samples), (row) => r.row(row));
     if (bytes) feed(bytes);
     else await data.read(feed);
     source = r.end();
+    if (jpxAlpha) {
+      const a = rasterizer({ w: sw, h: sh, bpc: 8, n: 1, cs: (await loadColorSpace(doc, GRAY))!, decode: [0, 1], stencil: false }, fx, fy);
+      rowsOf(sw, (row) => a.row(row))(jpxAlpha);
+      applyAlpha(source, grayToAlpha(a.end(), source.width, source.height));
+    }
   }
 
   // Soft mask, or an explicit stencil mask, as the alpha channel.

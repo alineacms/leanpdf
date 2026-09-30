@@ -150,7 +150,7 @@ invert: leanpdf decodes those itself.
 | `annotations` | `true` | Draw annotation appearances (form fields, stamps, highlights) |
 | `signal` | | AbortSignal |
 
-Not supported yet: JPEG 2000 and JBIG2 images (listed in `warnings`), non-embedded CJK fonts
+Not supported yet: JBIG2 images (listed in `warnings`), non-embedded CJK fonts
 with predefined CMaps, knockout groups, overprint and ICC profiles. Node has no canvas.
 
 ## Editing
@@ -268,20 +268,22 @@ Errors (`PdfError` subclasses): `PdfEncryptedError`, `PdfPasswordError`, `PdfFor
 | `leanpdf/node` | `NodeFileSource`, `NodeFileSink`, `compressPdfFile` |
 | `leanpdf/sharp` | `SharpImageCodec` (the only module that imports sharp) |
 
-Bundlers keep only what you import. Minified sizes, including the core each needs (`bun run size`):
+Bundlers keep only what you import. Minified sizes, including the core each needs (`bun run size`).
+The JPEG 2000 decoder (20 KB) is loaded with `import()` the first time an image needs it, so
+bundlers that split code keep it out of these:
 
 | Import | Minified | Gzipped |
 |---|--:|--:|
-| `compressPdfBlob` (core, Blob I/O, browser codec) | 42.8 KB | 16.5 KB |
+| `compressPdfBlob` (core, Blob I/O, browser codec) | 43.9 KB | 16.9 KB |
 | `openPdf` | 21.5 KB | 8.5 KB |
 | `openPdf` + `getInfo` | 29.3 KB | 11.6 KB |
 | `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 30.8 KB | 11.9 KB |
-| `openPdf` + `extractText` | 46.6 KB | 20.0 KB |
-| `openPdf` + `renderPage` | 132.0 KB | 55.3 KB |
+| `openPdf` + `extractText` | 46.8 KB | 20.1 KB |
+| `openPdf` + `renderPage` | 132.9 KB | 55.8 KB |
 | `rewritePdf` + all editing plugins | 49.6 KB | 18.7 KB |
 | `mergePdfs` | 40.6 KB | 15.7 KB |
 | `decryptPdf` | 42.7 KB | 17.0 KB |
-| everything | 225.8 KB | 90.4 KB |
+| everything | 227.7 KB | 91.2 KB |
 
 ### I/O
 
@@ -340,7 +342,8 @@ Skipped images are counted in `report.imagesSkipped`:
 |---|---|
 | `small` | below `minImageBytes` |
 | `cmyk`, `indexed`, `separation`, `deviceN`, `lab`, `colorSpace`, `noColorSpace` | unsupported color space (CMYK includes 4-component JPEGs) |
-| `jpx`, `jbig2`, `ccitt`, `filter` | unsupported filter or filter chain |
+| `jbig2`, `ccitt`, `filter` | unsupported filter or filter chain |
+| `jpx` | JPEG 2000 with its own alpha channel (`/SMaskInData`) |
 | `bitsPerComponent`, `decode`, `predictor` | not 8-bit, non-identity `/Decode`, unsupported predictor |
 | `imageMask`, `colorKeyMask` | stencil masks and images with a `/Mask` color-key array |
 | `softMask` | a soft mask that already fits, or isn't gray Flate data |
@@ -436,8 +439,8 @@ cp bench/.out/results.json bench/results.json && bun bench/readme.ts
 - Encrypted PDFs must be decrypted first.
 - Rewriting a signed PDF invalidates its signatures (the report says so).
 - Linearization is lost.
-- Not recompressed: CMYK, indexed, spot-color and calibrated images; JPEG 2000, JBIG2, CCITT;
-  bit depths other than 8; inline images.
+- Not recompressed: CMYK, indexed, spot-color and calibrated images; JBIG2, CCITT; bit depths
+  other than 8 (except JPEG 2000); inline images.
 - No deduplication or font subsetting.
 
 ## Development
@@ -453,7 +456,11 @@ bun run test:large           # > 500 MB memory-bound check
 bun run site:dev             # the website, with the in-browser app, at http://localhost:5173
 bun run site:build           # static site in site/dist (see site/README.md for Cloudflare Pages)
 bun bench/run.ts             # benchmarks (bun install --cwd bench first)
+bun test/browser/corpus.ts <dir> --png out/   # render a folder of PDFs, compare with MuPDF
 ```
+
+For a large corpus, pdf.js's test PDFs work well: clone `mozilla/pdf.js` and point the corpus
+runner at `test/pdfs`.
 
 Browser tests need Chromium (`bunx playwright-core install chromium`); validation tests need `qpdf`.
 

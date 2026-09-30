@@ -13,7 +13,7 @@ export const SKIP_REASONS: Record<string, string> = {
   lab: 'Lab colour',
   colorSpace: 'unsupported colour space',
   noColorSpace: 'no colour space',
-  jpx: 'JPEG 2000 (browsers cannot decode it)',
+  jpx: 'JPEG 2000 with its own alpha channel',
   jbig2: 'JBIG2 (black-and-white scan)',
   ccitt: 'CCITT fax (black-and-white scan)',
   filter: 'unsupported compression',

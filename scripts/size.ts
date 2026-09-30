@@ -29,18 +29,24 @@ const rows: string[] = [];
 for (const s of SCENARIOS) {
   const entry = `${dir}${s.name.replace(/\W+/g, '-')}.ts`;
   await Bun.write(entry, s.imports === '*' ? `export * from '${lib}';\n` : `export { ${s.imports} } from '${lib}';\n`);
-  const result = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'esm', minify: true });
+  // Split, so code loaded on demand (import()) is counted apart from what loads up front.
+  const result = await Bun.build({ entrypoints: [entry], outdir: `${dir}out`, target: 'browser', format: 'esm', minify: true, splitting: true });
   if (!result.success) {
     for (const log of result.logs) console.error(log);
     process.exit(1);
   }
-  const code = new Uint8Array(await result.outputs[0].arrayBuffer());
+  const code = new Uint8Array(await result.outputs.find((o) => o.kind === 'entry-point')!.arrayBuffer());
+  // Chunks the code still refers to after tree-shaking (Bun emits one per import() it sees).
+  const text = new TextDecoder().decode(code);
+  let lazy = 0;
+  for (const o of result.outputs) if (o.kind === 'chunk' && text.includes(o.path.split('/').pop()!)) lazy += (await o.arrayBuffer()).byteLength;
   const min = code.byteLength;
   const gz = Bun.gzipSync(code).byteLength;
   const over = s.budget !== undefined && min > s.budget;
   failed ||= over;
   rows.push(
     `${s.name.padEnd(52)} ${(min / KB).toFixed(1).padStart(6)} KB min ${(gz / KB).toFixed(1).padStart(6)} KB gz` +
+      (lazy ? `  (+${(lazy / KB).toFixed(1)} KB on demand)` : '') +
       (s.budget ? `  (budget ${(s.budget / KB).toFixed(0)} KB${over ? ', OVER' : ''})` : ''),
   );
 }

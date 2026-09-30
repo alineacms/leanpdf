@@ -321,7 +321,31 @@ describe.skipIf(!!skip)('renderPage vs MuPDF', () => {
     expect(ours.height).toBe(600);
   });
 
-  test('scale and fit options; JPEG 2000 is reported, not drawn', async () => {
+  test('JPEG 2000: color spaces from the codestream or the image, alpha (SMaskInData), reduced', async () => {
+    const b = new DocBuilder();
+    const jpx = (f: string) => new Uint8Array(readFileSync(new URL(`../render/fixtures/jpx/${f}`, import.meta.url)));
+    const im = (f: string, w: number, h: number, extra = '') => b.stream(`/Type /XObject /Subtype /Image /Width ${w} /Height ${h} /Filter /JPXDecode${extra}`, jpx(f));
+    const x = {
+      A: im('rgb-97.jp2', 88, 64),
+      B: im('gray-97.j2k', 88, 64, ' /ColorSpace /DeviceGray /BitsPerComponent 8'),
+      C: im('rgba-97.jp2', 88, 64, ' /SMaskInData 1'),
+      D: im('cmyk-53.jp2', 67, 45),
+      E: im('sycc-420-97.jp2', 88, 64),
+    };
+    const content = [
+      'q 176 0 0 128 10 260 cm /A Do Q',
+      'q 176 0 0 128 200 260 cm /B Do Q',
+      '0 0 1 rg 390 260 176 128 re f q 176 0 0 128 390 260 cm /C Do Q',
+      'q 134 0 0 90 10 120 cm /D Do Q',
+      'q 176 0 0 128 200 110 cm /E Do Q',
+      'q 22 0 0 16 420 150 cm /A Do Q',
+    ].join('\n');
+    b.page({ width: 600, height: 400, content, xobjects: x });
+    const ours = await check('jpx', b.finish().build().bytes, { mae: 5, bad: 0.02 });
+    expect(ours.warnings).toEqual([]);
+  });
+
+  test('scale and fit options; broken JPEG 2000 is reported', async () => {
     const b = new DocBuilder();
     const jpx = b.stream('/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /JPXDecode', new Uint8Array(32));
     b.page({ width: 200, height: 100, content: 'q 100 0 0 50 0 0 cm /J Do Q 1 0 0 rg 150 50 50 50 re f', xobjects: { J: jpx } });
@@ -330,7 +354,7 @@ describe.skipIf(!!skip)('renderPage vs MuPDF', () => {
     expect([big.width, big.height]).toEqual([600, 300]);
     const fit = await session!.ours(pdf, 0, { width: 100, height: 100 });
     expect([fit.width, fit.height]).toEqual([100, 50]);
-    expect(big.warnings.join()).toContain('JPEG 2000');
+    expect(big.warnings.join()).toContain('JPEG 2000 image could not be decoded');
   });
 });
 

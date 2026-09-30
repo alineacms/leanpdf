@@ -14,7 +14,9 @@ export interface ImagePlan {
   comps: ColorComponents;
   /** /ColorSpace is ICCBased (kept when the output has the same number of components). */
   icc: boolean;
-  chain: 'dct' | 'flate-dct' | 'flate' | 'raw';
+  chain: 'dct' | 'flate-dct' | 'flate' | 'raw' | 'jpx';
+  /** JPEG 2000 without /ColorSpace: the codestream says (comps is provisional). */
+  jpxColor?: boolean;
   /** /Predictor of a Flate image (1 = none). */
   predictor: number;
   /** /ColorTransform from the DCT decode parameters, if given. */
@@ -87,26 +89,36 @@ export async function classifyImage(
     if (n === undefined) return 'filter';
     filters.push(FILTER_ALIASES[n] ?? n);
   }
-  for (const n of filters) if (FILTER_REASONS[n]) return FILTER_REASONS[n];
   const key = filters.join(' ');
+  for (const n of filters) if (FILTER_REASONS[n] && key !== 'JPXDecode') return FILTER_REASONS[n];
   const chain =
-    key === 'DCTDecode' ? 'dct' : key === 'FlateDecode' ? 'flate' : key === 'FlateDecode DCTDecode' ? 'flate-dct' : key === '' ? 'raw' : null;
+    key === 'DCTDecode' ? 'dct' : key === 'FlateDecode' ? 'flate' : key === 'FlateDecode DCTDecode' ? 'flate-dct' : key === '' ? 'raw' : key === 'JPXDecode' ? 'jpx' : null;
   if (!chain) return 'filter';
   if (dataLength < minBytes) return 'small';
+  // JPEG 2000 keeps depth, and maybe color space, in the codestream; alpha there (/SMaskInData)
+  // would have nowhere to go.
+  const jpx = chain === 'jpx';
+  if (jpx) {
+    if (usedAsSoftMask) return 'softMask';
+    const alpha = await doc.resolve(d.get('SMaskInData'));
+    if (typeof alpha === 'number' && alpha !== 0) return 'jpx';
+  }
 
-  if ((await doc.resolve(d.get('BitsPerComponent'))) !== 8) return 'bitsPerComponent';
+  if (!jpx && (await doc.resolve(d.get('BitsPerComponent'))) !== 8) return 'bitsPerComponent';
   const width = await doc.resolve(d.get('Width'));
   const height = await doc.resolve(d.get('Height'));
   if (typeof width !== 'number' || typeof height !== 'number' || !Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
     return 'malformed';
   }
-  const cs = await colorSpace(doc, d.get('ColorSpace'));
+  const jpxColor = jpx && d.get('ColorSpace') === undefined;
+  const cs = jpxColor ? { comps: 3 as const, icc: false } : await colorSpace(doc, d.get('ColorSpace'));
   // Soft masks stay gray and lossless: only Flate or unfiltered gray masks can be shrunk.
   if (usedAsSoftMask && (typeof cs === 'string' || cs.comps !== 1 || chain === 'dct' || chain === 'flate-dct')) return 'softMask';
   if (typeof cs === 'string') return cs;
   if (width * height * cs.comps > MAX_SAMPLES) return 'tooLarge';
 
-  const decode = await doc.resolve(d.get('Decode'));
+  // JPEG 2000 ignores /Decode (but for masks).
+  const decode = jpx ? undefined : await doc.resolve(d.get('Decode'));
   if (decode !== undefined && decode !== null) {
     if (!Array.isArray(decode) || decode.length !== 2 * cs.comps) return 'decode';
     for (let i = 0; i < decode.length; i++) if ((await doc.resolve(decode[i])) !== i % 2) return 'decode';
@@ -124,6 +136,7 @@ export async function classifyImage(
     return p instanceof PdfDict ? p : undefined;
   };
   const plan: ImagePlan = { width, height, comps: cs.comps, icc: cs.icc, chain, predictor: 1, mask: usedAsSoftMask };
+  if (jpxColor) plan.jpxColor = true;
   if (chain === 'flate' || chain === 'flate-dct') {
     const p = await parms(0);
     const predictor = (p && intOf(await doc.resolve(p.get('Predictor')))) ?? 1;
@@ -159,11 +172,35 @@ function jpegProblem(info: JpegInfo | null, plan: ImagePlan): string | null {
   return null;
 }
 
-/** Read and decode what the codec needs. Returns a skip reason string on failure. */
-export async function loadImage(doc: PdfDocument, span: ObjSpan, plan: ImagePlan): Promise<ImageInput | string> {
+/**
+ * Read and decode what the codec needs; JPEG 2000 decodes no larger than `fit` (the size the codec
+ * will shrink it to), in halving steps. Returns a skip reason string on failure.
+ */
+export async function loadImage(doc: PdfDocument, span: ObjSpan, plan: ImagePlan, fit: [number, number] = [plan.width, plan.height]): Promise<ImageInput | string> {
   const { width, height, comps } = plan;
   const start = span.dataStart;
   const len = span.dataEnd - span.dataStart;
+  if (plan.chain === 'jpx') {
+    const data = await doc.reader.raw(start, len);
+    // Loaded on first use: the decoder is almost half the size of the rest of compression.
+    const { decodeJpx } = await import('./jpx.ts');
+    let reduce = 0;
+    while (Math.ceil(width / 2 ** (reduce + 1)) >= fit[0] && Math.ceil(height / 2 ** (reduce + 1)) >= fit[1]) reduce++;
+    const j = decodeJpx(data, { reduce, maxPixels: MAX_SAMPLES });
+    if (!j) return 'decodeError';
+    const channels = j.components - (j.alpha === undefined ? 0 : 1);
+    if (j.colorSpace === 'cmyk' || channels === 4) return 'cmyk';
+    const n: ColorComponents = plan.jpxColor ? (channels >= 3 ? 3 : 1) : comps;
+    if (channels < n) return 'decodeError';
+    let px = j.data;
+    if (j.components !== n) {
+      // Color channels only, in order.
+      const color = Array.from({ length: j.components }, (_, k) => k).filter((k) => k !== j.alpha);
+      px = new Uint8Array(j.width * j.height * n);
+      for (let i = 0; i < j.width * j.height; i++) for (let k = 0; k < n; k++) px[i * n + k] = j.data[i * j.components + color[k]];
+    }
+    return { kind: 'pixels', data: px, width: j.width, height: j.height, components: n };
+  }
   if (plan.chain === 'dct' || plan.chain === 'flate-dct') {
     let data: Uint8Array;
     if (plan.chain === 'dct') {
@@ -283,6 +320,7 @@ export function buildImageObject(d: PdfDict, data: Uint8Array, info: JpegInfo, k
     ['BitsPerComponent', '8'],
     ['Filter', '/DCTDecode'],
     ['DecodeParms', null],
+    ['SMaskInData', null],
   ]);
   if (!keepColorSpace) updates.set('ColorSpace', info.components === 1 ? '/DeviceGray' : '/DeviceRGB');
   return rewriteImage(d, data, updates);

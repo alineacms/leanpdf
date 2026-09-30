@@ -148,9 +148,9 @@ export function homePage(assets: Assets, bench: BenchData | null, bundle: Bundle
       <ul class="limits">
         <li>Encrypted PDFs must be decrypted first.</li>
         <li>Rewriting a signed PDF invalidates its signatures.</li>
-        <li>CMYK, indexed and spot-color images, JPEG 2000, JBIG2 and fax images aren’t recompressed.</li>
+        <li>CMYK, indexed and spot-color images, JBIG2 and fax images aren’t recompressed.</li>
         <li>Text comes out in drawing order; no OCR.</li>
-        <li>JPEG 2000 and JBIG2 images aren’t rendered yet.</li>
+        <li>JBIG2 images aren’t rendered yet.</li>
       </ul>
       <p><a href="/docs/#known-limitations">All known limitations</a></p>
     </div>
