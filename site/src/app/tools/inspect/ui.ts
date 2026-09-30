@@ -318,6 +318,6 @@ export const inspectTool: Tool = {
   id: 'inspect',
   label: 'Inspect',
   icon: info,
-  summary: 'See what a PDF contains: metadata, page sizes, bookmarks, attachments, images, form fields and links. Save any image or attachment.',
+  summary: 'Metadata, pages, bookmarks, attachments, images, form fields and links. Save any image or attachment.',
   mount,
 };

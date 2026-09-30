@@ -23,7 +23,7 @@ const TEMPLATE = `
         <input type="text" class="input" id="text-pages" data-ref="pages" placeholder="All pages, e.g. 1-5, 9" autocomplete="off" spellcheck="false" aria-describedby="text-pages-note">
         <p class="field-note" id="text-pages-note" data-ref="pagesNote" aria-live="polite"></p>
       </div>
-      <p class="hint">Text is read from the page contents, in the order it is drawn. Scanned pages are images and have no text (that would need OCR).</p>
+      <p class="hint">Scanned pages are images and have no text.</p>
     </fieldset>
     <div class="actions">
       <button type="submit" class="button primary" id="text-start" data-ref="start" disabled>${fileText}Extract text</button>
@@ -188,6 +188,6 @@ export const textTool: Tool = {
   id: 'text',
   label: 'Text',
   icon: fileText,
-  summary: 'Extract the text of a PDF, page by page, to search it, copy it or save it as a text file.',
+  summary: 'Extract the text to search, copy or save it.',
   mount,
 };

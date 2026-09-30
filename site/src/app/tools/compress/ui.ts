@@ -36,13 +36,13 @@ const TEMPLATE = `
           <div class="range-ends" id="compress-quality-ends"><span>Smaller files</span><span>Better images</span></div>
         </div>
       </div>
-      <p class="hint">Larger images are scaled down to fit this box, never up. An image is only replaced when the result is at least 10% smaller, and everything else is copied byte for byte.</p>
+      <p class="hint">Images are scaled down to fit, never up, and only replaced when at least 10% smaller.</p>
     </fieldset>
     <div class="actions">
       <button type="submit" class="button primary" id="compress-start" data-ref="start" disabled>${minimize}Compress</button>
       <button type="button" class="button" id="compress-save" data-ref="save" hidden disabled>${save}Compress to file…</button>
     </div>
-    <p class="hint" data-ref="saveHint" hidden>“Compress to file” writes the result to disk while it is being produced, so even a very large output never has to fit in memory.</p>
+    <p class="hint" data-ref="saveHint" hidden>“Compress to file” streams the result to disk, so large outputs never sit in memory.</p>
   </form>
   <div class="stack">
     <section class="card" id="compress-progress" data-ref="progressCard" hidden aria-labelledby="compress-progress-heading">
@@ -289,6 +289,6 @@ export const compressTool: Tool = {
   id: 'compress',
   label: 'Compress',
   icon: minimize,
-  summary: 'Make a PDF smaller by downscaling and re-encoding its images. Text, fonts and vector graphics are copied unchanged.',
+  summary: 'Make a PDF smaller by downscaling its images. Everything else is left as is.',
   mount,
 };

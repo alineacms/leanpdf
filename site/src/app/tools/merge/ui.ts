@@ -230,6 +230,6 @@ export const mergeTool: Tool = {
   id: 'merge',
   label: 'Merge',
   icon: layers,
-  summary: 'Combine PDFs into one, in the order you choose, taking all pages of each file or just some. Bookmarks and form fields come along.',
+  summary: 'Combine PDFs in the order you choose, with all pages or some.',
   mount,
 };

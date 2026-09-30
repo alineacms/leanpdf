@@ -9,7 +9,7 @@ export function appPage(assets: Assets): string {
   const body = `<div class="container">
 <div class="app-head">
   <h1>PDF tools in your browser</h1>
-  <p>Powered by leanpdf, running in a Web Worker on this page. Large files are fine: the PDF is read in slices and written as a stream.</p>
+  <p>Powered by leanpdf, in a background worker. Large files are fine.</p>
   <p class="privacy">${lock}Your files never leave this device. Nothing is uploaded.</p>
 </div>
 <div id="app" class="app" data-state="loading">
@@ -23,7 +23,7 @@ export function appPage(assets: Assets): string {
   return page({
     path: '/app/',
     title: 'PDF tools in your browser · leanpdf',
-    description: 'Compress, inspect, extract text from, edit, merge and unlock PDFs entirely in your browser. Large files stream to disk; nothing is uploaded.',
+    description: 'Compress, view, inspect, edit, merge and unlock PDFs in your browser. Nothing is uploaded.',
     body,
     assets,
     script: assets.appJs,

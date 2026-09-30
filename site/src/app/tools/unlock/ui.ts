@@ -20,7 +20,7 @@ const TEMPLATE = `
         <label for="unlock-password">Password</label>
         <input type="password" class="input" id="unlock-password" data-ref="password" autocomplete="off" spellcheck="false" aria-describedby="unlock-password-hint">
       </div>
-      <p class="hint" id="unlock-password-hint">The password that opens the document, or its owner password. Leave it empty for a PDF that opens without one and only restricts printing, copying or editing.</p>
+      <p class="hint" id="unlock-password-hint">The open or owner password. Leave it empty if the PDF opens without one.</p>
     </fieldset>
     ${actionsHtml('unlock', 'Unlock', unlock)}
   </form>
@@ -112,6 +112,6 @@ export const unlockTool: Tool = {
   id: 'unlock',
   label: 'Unlock',
   icon: unlock,
-  summary: 'Remove the encryption from a PDF you have the password for, or lift printing and copying restrictions, so other tools can work with it.',
+  summary: 'Remove the encryption from a PDF you have the password for.',
   mount,
 };

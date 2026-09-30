@@ -176,7 +176,7 @@ export function actionsHtml(id: string, label: string, icon: string): string {
       <button type="submit" class="button primary" id="${id}-start" data-ref="start" disabled>${icon}${label}</button>
       <button type="button" class="button" id="${id}-save" data-ref="save" hidden disabled>${save}${label} to file…</button>
     </div>
-    <p class="hint" data-ref="saveHint" hidden>“${label} to file” writes the result to disk while it is being produced, so even a very large output never has to fit in memory.</p>`;
+    <p class="hint" data-ref="saveHint" hidden>“${label} to file” streams the result to disk, so large outputs never sit in memory.</p>`;
 }
 
 export function resultHtml(id: string, heading = 'Result'): string {

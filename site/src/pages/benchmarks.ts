@@ -15,26 +15,26 @@ const TOOLS: { match: RegExp; name: string; text: string }[] = [
   {
     match: /leanpdf.*Node/,
     name: 'leanpdf (Node, sharp)',
-    text: 'The published CLI (dist/cli.js compress) on Node with the sharp codec, at its defaults: images capped at 1600 × 1600 px, JPEG quality 0.75, replaced only when at least 10% smaller.',
+    text: 'The CLI on Node with sharp, at its defaults: 1600 px, JPEG quality 0.75.',
   },
   { match: /leanpdf.*Bun/, name: 'leanpdf (Bun, sharp)', text: 'The same CLI run from source on Bun.' },
   {
     match: /pdf-lib/,
     name: 'pdf-lib + sharp',
-    text: "The usual pdf-lib approach: load the whole document into pdf-lib's object model, recompress image streams with sharp at the same limits (1600 px, quality 75, keep only if at most 90% of the original), then serialize everything with doc.save(). It handles JPEG and predictor-less Flate images only.",
+    text: 'Loads the whole document, recompresses images with sharp at the same settings, saves.',
   },
   {
     match: /Ghostscript WASM/,
     name: 'Ghostscript WASM, /ebook',
-    text: "Ghostscript compiled to WebAssembly, as used by in-browser compressors: the input is copied into the in-memory file system and rewritten with pdfwrite's /ebook preset (150 dpi images).",
+    text: 'Ghostscript in WebAssembly, as in-browser compressors use it, with the /ebook preset (150 dpi).',
   },
   {
     match: /MuPDF/,
     name: 'MuPDF.js, lossless',
-    text: 'MuPDF compiled to WebAssembly. Its JavaScript API has no image downsampling, so this is the best it offers: a lossless rewrite with garbage collection, deduplication and Flate for everything uncompressed.',
+    text: 'MuPDF in WebAssembly. Its API can’t downsample images, so this is a lossless rewrite.',
   },
-  { match: /Ghostscript 10 native/, name: 'Ghostscript native, /ebook', text: 'The native gs binary with the same /ebook preset, as a reference point outside JavaScript.' },
-  { match: /qpdf/, name: 'qpdf native, lossless', text: 'qpdf with --recompress-flate --compression-level=9 --object-streams=generate: a lossless native reference.' },
+  { match: /Ghostscript 10 native/, name: 'Ghostscript native, /ebook', text: 'Native Ghostscript with the same preset, for reference.' },
+  { match: /qpdf/, name: 'qpdf native, lossless', text: 'Native qpdf, lossless, for reference.' },
 ];
 
 function findings(data: BenchData): string {
@@ -47,18 +47,17 @@ function findings(data: BenchData): string {
     const ok = others.filter((r) => r.status === 'ok').sort((a, b) => b.peakMb - a.peakMb);
     const oom = others.filter((r) => r.status === 'out of memory');
     items.push(
-      `<li><strong>Memory stays bounded.</strong> leanpdf peaked between ${fmtRss(Math.min(...peaks))} and ${fmtRss(Math.max(...peaks))} of RSS across all files, the ${fmtMb(largest)} one included.` +
-        (ok.length ? ` On that file, the JavaScript and WebAssembly tools that load the whole document needed up to ${fmtRss(ok[0].peakMb)}` : '') +
+      `<li><strong>Memory stays flat.</strong> leanpdf used at most ${fmtRss(Math.max(...peaks))}, on the ${fmtMb(largest)} file too.` +
+        (ok.length ? ` The others needed up to ${fmtRss(ok[0].peakMb)}` : '') +
         (oom.length ? `${ok.length ? ', and ' : ' On that file, '}${oom.map((r) => escapeHtml(plainTool(r.tool).replace(/[,(].*$/, '').trim())).join(' and ')} ran out of memory` : '') +
         (ok.length || oom.length ? '.' : '') +
         '</li>',
     );
   }
   items.push(
-    '<li><strong>Ghostscript makes the smallest files.</strong> Its /ebook preset downsamples images to 150 dpi and re-renders the whole document, at a lower PSNR. Its WebAssembly build is also the slowest, and a 16 MB download.</li>',
-    '<li><strong>pdf-lib skips predicted Flate images.</strong> pdf-lib has no image decoders, so its script hands JPEGs and plain Flate images to sharp and leaves the rest: the PNG-predicted scans and the Flate photos in <code>large.pdf</code> stay as they are.</li>',
-    "<li><strong>Lossless tools don't shrink photos.</strong> MuPDF.js and qpdf don't touch image data, so photo-heavy files stay about the same size (or grow).</li>",
-    '<li><strong>Native programs use far less memory.</strong> The native Ghostscript and qpdf binaries use far less memory than any JavaScript runtime; they are here as reference points, not as alternatives you can run in a browser.</li>',
+    '<li><strong>Ghostscript makes the smallest files</strong> by re-rendering everything at 150 dpi, at lower quality.</li>',
+    '<li><strong>pdf-lib can’t decode predicted images</strong>, so the scans don’t shrink.</li>',
+    '<li><strong>Lossless tools don’t shrink photos.</strong></li>',
   );
   return `<ul>${items.join('\n')}</ul>`;
 }
@@ -69,17 +68,17 @@ function methodology(data: BenchData | null): string {
   const tools = TOOLS.filter((t) => !data || [...labels].some((l) => t.match.test(l)));
   return `<section class="methodology section" aria-labelledby="methodology">
 <h2 id="methodology">Methodology</h2>
-<p>The benchmark lives in <a href="${GITHUB_URL}/tree/main/bench" rel="noopener"><code>bench/</code></a>. Every tool runs in its own process; wall time is measured around it, and CPU time (user + system) and peak RSS come from the kernel's resource usage for that process. Outputs are checked with <code>qpdf --check</code>. For inputs under 200 MB, up to 60 pages of the output and of the original are rendered with MuPDF (72 dpi, grayscale) and compared as PSNR: higher means closer to the original, ∞ means pixel-identical.</p>
-<p>All numbers come from one run on a single Linux container. Absolute times will differ on your machine.</p>
+<p>Each tool runs in its own process on one Linux container; CPU time and peak memory come from the kernel. Outputs are checked with <code>qpdf --check</code>, and pages are rendered to compare quality (PSNR). The code is in <a href="${GITHUB_URL}/tree/main/bench" rel="noopener"><code>bench/</code></a>.</p>
+
 <h3>Tools</h3>
 <dl>
 ${tools.map((t) => `<dt>${escapeHtml(t.name)}</dt><dd>${escapeHtml(t.text)}</dd>`).join('\n')}
 </dl>
 <h3>Corpus</h3>
-<p>The documents are generated deterministically by <a href="${GITHUB_URL}/blob/main/bench/corpus.ts" rel="noopener"><code>bench/corpus.ts</code></a>, with photo-like images (fractal noise with the spectrum of natural photographs), so anyone can reproduce them.</p>
+<p>Generated by <a href="${GITHUB_URL}/blob/main/bench/corpus.ts" rel="noopener"><code>bench/corpus.ts</code></a>, with photo-like images.</p>
 ${corpus.size ? `<dl>${[...corpus].map(([f, d]) => `<dt><code>${escapeHtml(f)}</code></dt><dd>${escapeHtml(d.charAt(0).toUpperCase() + d.slice(1))}</dd>`).join('\n')}</dl>` : ''}
 <h3>Reproduce</h3>
-<p>You need Bun, Node, <code>qpdf</code> and Ghostscript (<code>gs</code>) on the <code>PATH</code>. The corpus is generated on the first run, about 700 MB in <code>bench/.corpus/</code>.</p>
+<p>Needs Bun, Node, <code>qpdf</code> and <code>gs</code>. The corpus (about 700 MB) is generated on the first run.</p>
 ${codeBlock(REPRODUCE, 'sh')}
 </section>`;
 }
@@ -95,7 +94,7 @@ ${data.files.map((f) => fileSection(data, f)).join('\n')}`
   const body = `<div class="container">
 <div class="page-head">
   <h1>Benchmarks</h1>
-  <p>leanpdf next to other JavaScript PDF tools, plus two native programs for reference, on the same generated documents. For output size, memory and CPU time, shorter bars are better. leanpdf's bars and rows are highlighted.</p>
+  <p>leanpdf next to other JavaScript PDF tools on the same documents. Shorter bars are better.</p>
 </div>
 ${results}
 ${methodology(data)}

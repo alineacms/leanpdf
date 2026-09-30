@@ -48,7 +48,7 @@ const TEMPLATE = `
           <p class="field-note" id="edit-rotate-note" data-ref="rotateNote" aria-live="polite"></p>
         </div>
       </div>
-      <p class="hint">Page numbers always refer to the original document. <code>5-2</code> runs backwards, <code>8-</code> runs to the last page.</p>
+      <p class="hint">Page numbers refer to the original. <code>5-2</code> runs backwards; <code>8-</code> runs to the end.</p>
     </fieldset>
     <fieldset class="options">
       <legend>Clean up</legend>
@@ -170,6 +170,6 @@ export const editTool: Tool = {
   id: 'edit',
   label: 'Pages & cleanup',
   icon: scissors,
-  summary: 'Keep, reorder and rotate pages, and remove metadata, JavaScript, attachments and leftovers. Everything else is copied byte for byte.',
+  summary: 'Keep, reorder and rotate pages; remove metadata, scripts and attachments.',
   mount,
 };

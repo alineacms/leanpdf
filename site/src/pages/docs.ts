@@ -77,7 +77,7 @@ export function docsPage(assets: Assets, readme = readFileSync(`${ROOT}README.md
   const body = `<div class="container">
 <div class="page-head">
   <h1>Documentation</h1>
-  <p>Install, usage and the complete API. This page is generated from the project's README at build time.</p>
+  <p>Generated from the README.</p>
 </div>
 <div class="docs-layout">
   <nav class="toc" aria-label="On this page">
@@ -95,7 +95,7 @@ ${docs.html}
   return page({
     path: '/docs/',
     title: 'Documentation · leanpdf',
-    description: 'How to install and use leanpdf in the browser, Node and Bun: compressPdf, compressPdfBlob, I/O adapters, codecs, and what gets recompressed.',
+    description: 'How to install and use leanpdf in the browser, Node and Bun.',
     body,
     assets,
     script: assets.siteJs,
