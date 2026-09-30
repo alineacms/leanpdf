@@ -120,12 +120,47 @@ function unpredict(d: Uint8Array, parms: PdfDict | undefined): Uint8Array {
   return concat(rows);
 }
 
+/** Image codecs: undoing filters stops at them (`codec` in the result). */
+const CODECS: Record<string, string> = { DCT: 'DCTDecode', CCF: 'CCITTFaxDecode', DCTDecode: 'DCTDecode', CCITTFaxDecode: 'CCITTFaxDecode', JPXDecode: 'JPXDecode', JBIG2Decode: 'JBIG2Decode' };
+
+/** Stream data with its non-image filters undone, and the image codec that remains, if any. */
+export interface Decoded {
+  data: Uint8Array;
+  /** DCTDecode, JPXDecode, JBIG2Decode or CCITTFaxDecode: `data` is still encoded with it. */
+  codec?: string;
+  /** The codec's /DecodeParms. */
+  parms?: PdfDict;
+}
+
 /**
- * Read a stream's data with its filters undone (Flate, LZW, ASCIIHex, ASCII85, RunLength and
- * predictors). Returns null if a filter isn't supported (image codecs), the data exceeds `max`
+ * Undo `filters` (full or abbreviated names) on in-memory data, as for inline images. Stops at an
+ * image codec. Null when a filter isn't supported or the result exceeds `max` bytes.
+ */
+export async function decodeFilters(data: Uint8Array, filters: (string | undefined)[], parms: (PdfDict | undefined)[], max: number): Promise<Decoded | null> {
+  for (let i = 0; i < filters.length; i++) {
+    const name = ALIASES[filters[i] ?? ''] ?? filters[i];
+    const p = parms[i];
+    const codec = CODECS[name ?? ''];
+    if (codec) return { data, codec, parms: p };
+    if (name === 'FlateDecode') {
+      const ds = new Response(new Blob([data as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('deflate')));
+      data = unpredict(new Uint8Array(await ds.arrayBuffer()), p);
+    } else if (name === 'LZWDecode') data = unpredict(lzw(data, p ? (intOf(p.get('EarlyChange')) ?? 1) : 1, max), p);
+    else if (name === 'ASCIIHexDecode') data = asciiHex(data);
+    else if (name === 'ASCII85Decode') data = ascii85(data);
+    else if (name === 'RunLengthDecode') data = runLength(data);
+    else if (name !== 'Crypt') return null;
+    if (data.length > max) return null;
+  }
+  return { data };
+}
+
+/**
+ * A stream's data with its filters undone (Flate, LZW, ASCIIHex, ASCII85, RunLength and
+ * predictors), stopping at an image codec. Null if a filter isn't supported, the data exceeds `max`
  * bytes, or it can't be decoded.
  */
-export async function readStream(doc: PdfDocument, stream: PdfRef | ObjHeader, max = 64 << 20): Promise<Uint8Array | null> {
+export async function decodeStream(doc: PdfDocument, stream: PdfRef | ObjHeader, max = 64 << 20): Promise<Decoded | null> {
   const hdr = stream instanceof PdfRef ? await doc.header(stream.num) : stream;
   if (!hdr || !hdr.stream) return null;
   const d = hdr.value as PdfDict;
@@ -134,34 +169,33 @@ export async function readStream(doc: PdfDocument, stream: PdfRef | ObjHeader, m
   const f = await doc.resolve(d.get('Filter'));
   const filters = (Array.isArray(f) ? f : f === undefined || f === null ? [] : [f]).map((x) => nameOf(x as PdfObj));
   const dp = await doc.resolve(d.get('DecodeParms'));
+  const parms: (PdfDict | undefined)[] = [];
+  for (let i = 0; i < filters.length; i++) {
+    const p = await doc.resolve(Array.isArray(dp) ? dp[i] : i === 0 ? dp : undefined);
+    parms.push(p instanceof PdfDict ? p : undefined);
+  }
   const len = span.dataEnd - span.dataStart;
   if (len > max) return null;
-  let data: Uint8Array | null = null;
   try {
-    for (let i = 0; i < filters.length; i++) {
-      const name = ALIASES[filters[i] ?? ''] ?? filters[i];
-      const p = await doc.resolve(Array.isArray(dp) ? dp[i] : i === 0 ? dp : undefined);
-      const parms = p instanceof PdfDict ? p : undefined;
-      if (name === 'FlateDecode' && i === 0) {
-        const r = await inflateAll(doc.reader, span.dataStart, len, max);
-        if (r.data.length > max) return null;
-        data = unpredict(r.data, parms);
-        continue;
-      }
-      data ??= await doc.reader.raw(span.dataStart, len);
-      if (name === 'FlateDecode') {
-        const ds = new Response(new Blob([data as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('deflate')));
-        data = unpredict(new Uint8Array(await ds.arrayBuffer()), parms);
-      } else if (name === 'LZWDecode') data = unpredict(lzw(data, parms ? (intOf(parms.get('EarlyChange')) ?? 1) : 1, max), parms);
-      else if (name === 'ASCIIHexDecode') data = asciiHex(data);
-      else if (name === 'ASCII85Decode') data = ascii85(data);
-      else if (name === 'RunLengthDecode') data = runLength(data);
-      else if (name !== 'Crypt') return null;
-      if (data.length > max) return null;
+    // The first Flate filter streams from the file, so compressed data is never held whole.
+    if ((ALIASES[filters[0] ?? ''] ?? filters[0]) === 'FlateDecode') {
+      const r = await inflateAll(doc.reader, span.dataStart, len, max);
+      if (r.data.length > max) return null;
+      return await decodeFilters(unpredict(r.data, parms[0]), filters.slice(1), parms.slice(1), max);
     }
+    return await decodeFilters(await doc.reader.raw(span.dataStart, len), filters, parms, max);
   } catch (e) {
     if (e instanceof Error && (e.name === 'SourceReadError' || e.name === 'AbortError')) throw e;
     return null;
   }
-  return data ?? (await doc.reader.raw(span.dataStart, len));
+}
+
+/**
+ * Read a stream's data with its filters undone (Flate, LZW, ASCIIHex, ASCII85, RunLength and
+ * predictors). Returns null if a filter isn't supported (image codecs), the data exceeds `max`
+ * bytes, or it can't be decoded.
+ */
+export async function readStream(doc: PdfDocument, stream: PdfRef | ObjHeader, max = 64 << 20): Promise<Uint8Array | null> {
+  const r = await decodeStream(doc, stream, max);
+  return r && !r.codec ? r.data : null;
 }

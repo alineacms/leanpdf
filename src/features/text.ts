@@ -3,12 +3,12 @@
  * stream order. Not a layout engine: spaces are inserted where glyphs are visibly apart, newlines
  * where the baseline moves.
  */
-import { isRegular, isWhite } from '../core/bytes.ts';
+import { pageContent, readArray, readDict, readInlineImage, type Operand } from '../core/content.ts';
 import { readStream } from '../core/decode.ts';
 import type { PdfDocument } from '../core/document.ts';
 import { isFatal, PdfEncryptedError } from '../core/errors.ts';
-import { Lexer, T_ACLOSE, T_AOPEN, T_DOPEN, T_EOF, T_KW, T_NAME, T_NUM, T_STR } from '../core/lexer.ts';
-import { intOf, nameOf, numOf, Parser, PdfDict, PdfName, PdfRef, PdfString, type PdfObj } from '../core/objects.ts';
+import { Lexer, T_AOPEN, T_DOPEN, T_EOF, T_KW, T_NAME, T_NUM, T_STR } from '../core/lexer.ts';
+import { nameOf, PdfDict, PdfName, PdfRef, PdfString, type PdfObj } from '../core/objects.ts';
 import type { ObjHeader } from '../core/objread.ts';
 import { walkPages, type PageNode } from '../core/pages.ts';
 import { stringBytes, textOf } from '../core/strings.ts';
@@ -38,7 +38,6 @@ const FORM_CACHE_BYTES = 8 << 20;
 const FONT_CACHE = 64;
 
 type Matrix = number[];
-type Operand = number | Uint8Array | PdfName | PdfDict | Operand[] | null;
 type FontCache = Map<number, Promise<Font>>;
 
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
@@ -113,30 +112,6 @@ export async function extractAllText(doc: PdfDocument, opts: TextOptions = {}): 
   const pages: string[] = [];
   for await (const p of extractText(doc, opts)) pages.push(p.text);
   return pages.join('\f');
-}
-
-/** A page's content streams, concatenated with a line break between them. */
-async function pageContent(doc: PdfDocument, c: PdfObj | undefined): Promise<Uint8Array> {
-  let list: PdfObj[] = [c ?? null];
-  if (c instanceof PdfRef) {
-    const o = await doc.getObject(c.num);
-    if (Array.isArray(o)) list = o;
-  } else if (Array.isArray(c)) list = c;
-  const parts: Uint8Array[] = [];
-  let total = 0;
-  for (const ref of list) {
-    const data = ref instanceof PdfRef && (await readStream(doc, ref, MAX_CONTENT - total));
-    if (!data) continue;
-    parts.push(data);
-    total += data.length + 1;
-  }
-  const out = new Uint8Array(total).fill(10);
-  total = 0;
-  for (const p of parts) {
-    out.set(p, total);
-    total += p.length + 1;
-  }
-  return out;
 }
 
 /** Interpret one page's content and return its text. */
@@ -449,7 +424,7 @@ async function pageText(doc: PdfDocument, page: PageNode, fonts: FontCache, sign
           if (last instanceof PdfName) await xobject(last.name, res, depth);
           break;
         case 'BI':
-          skipInlineImage(lex);
+          readInlineImage(lex);
           break;
         case 'BMC':
         case 'BDC':
@@ -477,100 +452,9 @@ async function pageText(doc: PdfDocument, page: PageNode, fonts: FontCache, sign
   };
 
   try {
-    await run(await pageContent(doc, page.dict.get('Contents')), page.resources, 0);
+    await run(await pageContent(doc, page.dict.get('Contents'), MAX_CONTENT), page.resources, 0);
   } catch (e) {
     if (isFatal(e)) throw e;
   }
   return out;
-}
-
-/** Array operand (TJ, dash patterns): numbers, strings, names, nested arrays. */
-function readArray(lex: Lexer, depth: number): Operand[] {
-  const out: Operand[] = [];
-  while (out.length < 1 << 16) {
-    const t = lex.next();
-    if (t.t === T_ACLOSE || t.t === T_EOF) break;
-    if (t.t === T_NUM || t.t === T_STR) out.push(t.v as number | Uint8Array);
-    else if (t.t === T_NAME) out.push(new PdfName(t.v as string));
-    else if (t.t === T_AOPEN && depth < 8) out.push(readArray(lex, depth + 1));
-    else if (t.t === T_KW && !/^(true|false|null)$/.test(t.v as string)) {
-      // An operator: the array was never closed. Leave the operator for the interpreter.
-      lex.pos = t.s;
-      break;
-    }
-  }
-  return out;
-}
-
-/** Parse one object at `start` with the object parser; resume after what it consumed. */
-function readObject(lex: Lexer, start: number): PdfObj {
-  lex.pos = start;
-  const p = new Parser(lex);
-  let v: PdfObj = null;
-  try {
-    v = p.parse();
-  } catch {
-    // Malformed: keep going after the consumed tokens.
-  }
-  lex.pos = Math.max(p.lastEnd, start + 1);
-  return v;
-}
-
-/** Dictionary operand (BDC properties). */
-function readDict(lex: Lexer, start: number): PdfDict | null {
-  const v = readObject(lex, start);
-  return v instanceof PdfDict ? v : null;
-}
-
-const COMPONENTS: Record<string, number> = { G: 1, DeviceGray: 1, CalGray: 1, I: 1, Indexed: 1, RGB: 3, DeviceRGB: 3, CalRGB: 3, CMYK: 4, DeviceCMYK: 4 };
-
-/**
- * Skip an inline image (`BI <dict> ID <data> EI`). The data length is computed when the image is
- * unfiltered (or has /L), else we look for an `EI` between whitespace that is followed by
- * something that looks like content.
- */
-function skipInlineImage(lex: Lexer): void {
-  const b = lex.buf;
-  const info = new Map<string, PdfObj>();
-  for (;;) {
-    const t = lex.next();
-    if (t.t === T_EOF) return;
-    if (t.t === T_KW && t.v === 'ID') break;
-    if (t.t !== T_NAME) continue;
-    const at = lex.pos;
-    const peek = lex.next();
-    if (peek.t === T_KW && peek.v === 'ID') break;
-    info.set(t.v as string, readObject(lex, at));
-  }
-  const start = lex.pos + 1;
-  const get = (k: string, short: string) => info.get(k) ?? info.get(short);
-  const f = get('Filter', 'F');
-  const im = get('ImageMask', 'IM') === true;
-  const w = intOf(get('Width', 'W'));
-  const h = intOf(get('Height', 'H'));
-  const cs = get('ColorSpace', 'CS');
-  const comps = im ? 1 : COMPONENTS[nameOf(Array.isArray(cs) ? cs[0] : cs) ?? ''];
-  const bpc = im ? 1 : (intOf(get('BitsPerComponent', 'BPC')) ?? 8);
-  let len = numOf(get('Length', 'L')) ?? -1;
-  if ((f === undefined || (Array.isArray(f) && !f.length)) && w && h && comps) len = h * Math.ceil((w * comps * bpc) / 8);
-  let e = start + len;
-  while (len >= 0 && e < b.length && isWhite(b[e])) e++;
-  if (len < 0 || b[e] !== 0x45 || b[e + 1] !== 0x49 || isRegular(b[e + 2] ?? 32)) {
-    // Unknown or wrong length: search for a plausible EI.
-    for (e = b.indexOf(0x45, start); e >= 0; e = b.indexOf(0x45, e + 1)) {
-      if (b[e + 1] === 0x49 && e >= start && isWhite(b[e - 1]) && isWhite(b[e + 2] ?? 32) && looksLikeContent(b, e + 2)) break;
-    }
-    if (e < 0) e = b.length;
-  }
-  lex.pos = e + 2;
-}
-
-/** Are the bytes after a candidate `EI` plausible content (text up to the next string)? */
-function looksLikeContent(b: Uint8Array, i: number): boolean {
-  for (const end = Math.min(b.length, i + 48); i < end; i++) {
-    const c = b[i];
-    if (c === 0x28 || c === 0x3c) return true;
-    if (c > 0x7e || (c < 0x20 && !isWhite(c))) return false;
-  }
-  return true;
 }

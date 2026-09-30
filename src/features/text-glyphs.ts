@@ -106,6 +106,32 @@ export function glyphText(name: string): string | undefined {
   return undefined;
 }
 
+let byChar: Map<string, string> | undefined;
+
+/**
+ * The standard glyph name of a character, the inverse of `glyphText` for single characters:
+ * letters, digits, the named punctuation and symbols, accented Latin letters (base name plus
+ * accent), else `uniXXXX`.
+ */
+export function glyphName(ch: string): string {
+  if (/^[A-Za-z]$/.test(ch)) return ch;
+  if (!byChar) {
+    byChar = new Map();
+    for (const [name, c] of table()) if (!byChar.has(c)) byChar.set(c, name);
+    // Names fonts use for characters whose text form is shared or decomposed.
+    for (const m of '\u00a0space \u00adhyphen ﬁfi ﬂfl µmu ≠notequal ∞infinity ≤lessequal ≥greaterequal ∂partialdiff ∑summation ∏product πpi ∫integral ΩOmega √radical ≈approxequal ∆Delta ◊lozenge'.split(' ')) {
+      byChar.set(m[0], m.slice(1));
+    }
+  }
+  const named = byChar.get(ch);
+  if (named) return named;
+  const d = ch.normalize('NFD');
+  if (d.length === 2 && /^[A-Za-z]$/.test(d[0])) {
+    for (const [suffix, marks] of accents!) if (marks[0] === d[1]) return d[0] + suffix;
+  }
+  return 'uni' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0');
+}
+
 /** Cyrillic afii names (afii10017..afii10110, afii10145, afii10193). */
 function afii(n: number): string | undefined {
   if (n === 10145 || n === 10193) return n === 10145 ? 'Џ' : 'џ';
