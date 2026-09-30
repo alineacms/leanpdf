@@ -87,7 +87,8 @@ export class PdfDocument {
         doc.repaired = true;
         doc.warnings.push(`Repaired ${bad.length} bad cross-reference offset(s)`);
       }
-      if ((await doc.resolve(doc.trailer.get('Root'))) instanceof PdfDict) return doc;
+      // An encrypted catalog may sit in an (encrypted) object stream we can't read: that's not damage.
+      if ((await doc.resolve(doc.trailer.get('Root'))) instanceof PdfDict || doc.trailer.get('Encrypt') !== undefined) return doc;
     }
     // Full rebuild.
     const scan = await scanObjects(reader, signal);
@@ -106,7 +107,11 @@ export class PdfDocument {
     if (!((await doc.resolve(trailer.get('Root'))) instanceof PdfDict) && scan.catalog >= 0) {
       trailer.set('Root', new PdfRef(scan.catalog, doc.index.b[scan.catalog]), ascii(`${scan.catalog} ${doc.index.b[scan.catalog]} R`));
     }
-    if (!((await doc.resolve(trailer.get('Root'))) instanceof PdfDict)) {
+    if (trailer.get('Encrypt') === undefined && scan.encrypt >= 0) {
+      const n = scan.encrypt;
+      trailer.set('Encrypt', new PdfRef(n, doc.index.b[n]), ascii(`${n} ${doc.index.b[n]} R`));
+    }
+    if (!((await doc.resolve(trailer.get('Root'))) instanceof PdfDict) && trailer.get('Encrypt') === undefined) {
       throw new PdfFormatError(header.offset < 0 ? 'Not a PDF file' : 'No document catalog found; the file is too damaged');
     }
     doc.index.set(0, E_FREE, 0, 65535);

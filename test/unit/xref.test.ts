@@ -218,3 +218,21 @@ describe('damaged cross-reference data', () => {
     expect(src.bytesRead).toBeLessThan(1 << 20);
   });
 });
+
+describe('encrypted documents with damaged cross-references', () => {
+  const encryptObjs = [...BASE_OBJECTS, { num: 5, body: '<< /Filter /Standard /V 2 /R 3 /Length 128 /O <00112233> /U <44556677> /P -4 >>' }];
+
+  test('a rebuilt trailer still knows the file is encrypted', async () => {
+    const { text } = miniPdf(encryptObjs, '/Root 1 0 R /Encrypt 5 0 R /ID [<01><02>]');
+    const doc = await open(text.slice(0, text.indexOf('xref'))); // trailer lost
+    expect(doc.repaired).toBe(true);
+    expect(doc.trailer.get('Encrypt')).toBeDefined();
+  });
+
+  test('an unreadable catalog in an encrypted file is not mistaken for damage', async () => {
+    const { text } = miniPdf(encryptObjs, '/Root 9 0 R /Encrypt 5 0 R');
+    const doc = await open(text);
+    expect(doc.repaired).toBe(false);
+    expect(doc.trailer.get('Encrypt')).toBeDefined();
+  });
+});

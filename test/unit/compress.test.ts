@@ -324,3 +324,9 @@ test('xref streams in the source produce an xref stream in the output', async ()
   expect(doc.index.get(7)).toBe(E_OFFSET); // the new xref stream
   expect(((await doc.getObject(3)) as PdfDict).get('Parent')).toBeDefined();
 });
+
+test('a truncated encrypted file is still refused, not copied as if it were plain', async () => {
+  const objs = [...BASE_OBJECTS, { num: 5, body: '<< /Filter /Standard /V 2 /R 3 /Length 128 /O <00112233> /U <44556677> /P -4 >>' }];
+  const { text } = miniPdf(objs, '/Root 1 0 R /Encrypt 5 0 R');
+  await expect(run(text.slice(0, text.indexOf('xref')))).rejects.toBeInstanceOf(PdfEncryptedError);
+});

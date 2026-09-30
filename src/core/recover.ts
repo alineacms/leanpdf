@@ -14,6 +14,8 @@ export interface ScanResult {
   catalog: number;
   /** Object streams, in file order. */
   objStms: number[];
+  /** Last object that looked like an encryption dictionary, or -1. */
+  encrypt: number;
 }
 
 const CH = 1 << 20;
@@ -43,6 +45,7 @@ export async function scanObjects(reader: SourceReader, signal?: AbortSignal): P
   const trailers: PdfDict[] = [];
   const objStms: number[] = [];
   let catalog = -1;
+  let encrypt = -1;
   let skipUntil = 0;
   for (let pos = 0; pos < reader.size; pos = Math.max(pos + CH - OV, skipUntil - OV / 2)) {
     signal?.throwIfAborted();
@@ -101,10 +104,13 @@ export async function scanObjects(reader: SourceReader, signal?: AbortSignal): P
         else if (type === 'ObjStm') objStms.push(hdr.num);
       } else {
         if (type === 'Catalog') catalog = hdr.num;
+        // An encryption dictionary (/Filter, /O, /U): the file must not pass for unencrypted.
+        const e = d instanceof PdfDict ? d : undefined;
+        if (e && nameOf(e.get('Filter')) && e.get('O') !== undefined && e.get('U') !== undefined) encrypt = hdr.num;
         skipUntil = hdr.endobj >= 0 ? hdr.endobj : hdr.valueEnd;
       }
     }
     if (last) break;
   }
-  return { index, trailers, catalog, objStms };
+  return { index, trailers, catalog, objStms, encrypt };
 }
