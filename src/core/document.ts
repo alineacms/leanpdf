@@ -33,6 +33,7 @@ interface ObjStmData {
 }
 
 const MAX_OBJSTM = 32 << 20;
+const STM_CACHE_BYTES = 16 << 20;
 
 export class PdfDocument {
   readonly reader: SourceReader;
@@ -169,7 +170,11 @@ export class PdfDocument {
 
   private async objStm(num: number): Promise<ObjStmData | null> {
     let s = this.stmCache.get(num);
-    if (s) return s;
+    if (s) {
+      this.stmCache.delete(num);
+      this.stmCache.set(num, s);
+      return s;
+    }
     const hdr = await this.header(num);
     if (!hdr || !hdr.stream) return null;
     const d = hdr.value as PdfDict;
@@ -186,8 +191,15 @@ export class PdfDocument {
       pairs.push(t.v as number);
     }
     s = { data, first, pairs };
-    if (this.stmCache.size >= 2) this.stmCache.delete(this.stmCache.keys().next().value!);
+    // Least recently used, bounded by decoded size (random access, e.g. reachability, revisits).
     this.stmCache.set(num, s);
+    let total = 0;
+    for (const v of this.stmCache.values()) total += v.data.length;
+    for (const [k, v] of this.stmCache) {
+      if (total <= STM_CACHE_BYTES || this.stmCache.size <= 1) break;
+      this.stmCache.delete(k);
+      total -= v.data.length;
+    }
     return s;
   }
 

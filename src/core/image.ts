@@ -257,14 +257,14 @@ export async function shrinkMask(doc: PdfDocument, span: ObjSpan, plan: ImagePla
 }
 
 /**
- * A rewritten image object: all original keys in their original order and form, except the ones
- * in `updates`, which are replaced (or removed when null); new keys go at the end.
+ * The new value of a rewritten image: all original keys in their original order and form,
+ * except the ones in `updates`, which are replaced (or removed when null); new keys go last.
  */
-export function rewriteImage(num: number, gen: number, d: PdfDict, data: Uint8Array, updates: Map<string, string | null>): Uint8Array[] {
+export function rewriteImage(d: PdfDict, data: Uint8Array, updates: Map<string, string | null>): Uint8Array[] {
   updates.set('Length', String(data.length));
   updates.set('Decode', null);
   updates.set('DL', null);
-  let s = `${num} ${gen} obj\n<<`;
+  let s = '<<';
   for (const [k, raw] of d.raw) {
     const u = updates.get(k);
     if (u === undefined) s += `${encodeName(k)} ${latin1(raw)}\n`;
@@ -272,11 +272,11 @@ export function rewriteImage(num: number, gen: number, d: PdfDict, data: Uint8Ar
     updates.delete(k);
   }
   for (const [k, u] of updates) if (u !== null) s += `${encodeName(k)} ${u}\n`;
-  return [ascii(s + '>>\nstream\n'), data, ascii('\nendstream\nendobj\n')];
+  return [ascii(s + '>>\nstream\n'), data, ascii('\nendstream')];
 }
 
-/** The rewritten object for a recompressed JPEG. */
-export function buildImageObject(num: number, gen: number, d: PdfDict, data: Uint8Array, info: JpegInfo, keepColorSpace: boolean): Uint8Array[] {
+/** The new value of a recompressed JPEG image. */
+export function buildImageObject(d: PdfDict, data: Uint8Array, info: JpegInfo, keepColorSpace: boolean): Uint8Array[] {
   const updates = new Map<string, string | null>([
     ['Width', String(info.width)],
     ['Height', String(info.height)],
@@ -285,14 +285,12 @@ export function buildImageObject(num: number, gen: number, d: PdfDict, data: Uin
     ['DecodeParms', null],
   ]);
   if (!keepColorSpace) updates.set('ColorSpace', info.components === 1 ? '/DeviceGray' : '/DeviceRGB');
-  return rewriteImage(num, gen, d, data, updates);
+  return rewriteImage(d, data, updates);
 }
 
-/** The rewritten object for a shrunk soft mask (Flate, PNG Up predictor). */
-export function buildMaskObject(num: number, gen: number, d: PdfDict, data: Uint8Array, width: number, height: number): Uint8Array[] {
+/** The new value of a shrunk soft mask (Flate, PNG Up predictor). */
+export function buildMaskObject(d: PdfDict, data: Uint8Array, width: number, height: number): Uint8Array[] {
   return rewriteImage(
-    num,
-    gen,
     d,
     data,
     new Map<string, string | null>([

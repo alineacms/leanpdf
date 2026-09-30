@@ -12,7 +12,7 @@ export const isWhite = (c: number): boolean => charClass[c] === 1;
 export const isRegular = (c: number): boolean => charClass[c] === 0;
 export const isDigit = (c: number): boolean => c >= 48 && c <= 57;
 
-export const EMPTY = new Uint8Array(0);
+export const EMPTY = /* @__PURE__ */ new Uint8Array(0);
 
 export function latin1(b: Uint8Array, start = 0, end = b.length): string {
   let s = '';

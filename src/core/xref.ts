@@ -81,7 +81,7 @@ export class XrefIndex {
 type EntryFn = (num: number, type: number, a: number, b: number) => void;
 
 /** Keys that describe a cross-reference section rather than the document. */
-export const XREF_KEYS = new Set([
+export const XREF_KEYS = /* @__PURE__ */ new Set([
   'Size', 'Prev', 'XRefStm', 'Type', 'W', 'Index', 'Filter', 'DecodeParms', 'Length', 'DL', 'F', 'FFilter', 'FDecodeParms',
 ]);
 

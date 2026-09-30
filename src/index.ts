@@ -4,7 +4,11 @@ import type { CompressOptions, CompressReport, ImageCodec } from './core/types.t
 import { BlobPartsSink, BlobSource } from './io/blob.ts';
 
 export * from './core/types.ts';
-export { compressPdf } from './core/compress.ts';
+export { compressImages, compressPdf, type CompressImagesOptions, type ImagesReport } from './core/compress.ts';
+export { openPdf } from './core/open.ts';
+export { rewritePdf, type ObjectAction, type Plugin, type RewriteContext, type RewriteOptions, type RewriteReport, type TaskResult } from './core/rewrite.ts';
+export type { PdfDocument } from './core/document.ts';
+export { PdfDict, PdfName, PdfRef, PdfString, type PdfObj } from './core/objects.ts';
 export { PdfEncryptedError, PdfError, PdfFormatError, SourceReadError } from './core/errors.ts';
 export { BlobPartsSink, BlobSource, WritableStreamSink } from './io/blob.ts';
 export { BrowserImageCodec } from './codecs/browser.ts';

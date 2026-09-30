@@ -51,7 +51,7 @@ export const numOf = (o: PdfObj | undefined): number | undefined => (typeof o ==
 export const intOf = (o: PdfObj | undefined): number | undefined =>
   typeof o === 'number' && Number.isInteger(o) ? o : undefined;
 
-const STRUCTURAL = new Set(['obj', 'endobj', 'stream', 'endstream', 'xref', 'trailer', 'startxref']);
+const STRUCTURAL = /* @__PURE__ */ new Set(['obj', 'endobj', 'stream', 'endstream', 'xref', 'trailer', 'startxref']);
 const MAX_DEPTH = 100;
 
 /** Object parser on top of the lexer, with two tokens of lookahead for `N G R`. */
