@@ -269,8 +269,8 @@ Errors (`PdfError` subclasses): `PdfEncryptedError`, `PdfPasswordError`, `PdfFor
 | `leanpdf/sharp` | `SharpImageCodec` (the only module that imports sharp) |
 
 Bundlers keep only what you import. Minified sizes, including the core each needs (`bun run size`).
-The JPEG 2000 decoder (20 KB) is loaded with `import()` the first time an image needs it, so
-bundlers that split code keep it out of these:
+Decoders for images browsers can't decode (JPEG 2000, CMYK JPEG, fax; 30 KB) load with
+`import()` the first time a page needs one, so bundlers that split code keep them out of these:
 
 | Import | Minified | Gzipped |
 |---|--:|--:|
@@ -279,11 +279,11 @@ bundlers that split code keep it out of these:
 | `openPdf` + `getInfo` | 29.3 KB | 11.6 KB |
 | `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 30.8 KB | 11.9 KB |
 | `openPdf` + `extractText` | 46.8 KB | 20.1 KB |
-| `openPdf` + `renderPage` | 134.8 KB | 57.0 KB |
+| `openPdf` + `renderPage` | 125.0 KB | 52.4 KB |
 | `rewritePdf` + all editing plugins | 49.6 KB | 18.7 KB |
 | `mergePdfs` | 40.6 KB | 15.7 KB |
 | `decryptPdf` | 42.9 KB | 17.1 KB |
-| everything | 229.8 KB | 92.5 KB |
+| everything | 220.0 KB | 88.0 KB |
 
 ### I/O
 

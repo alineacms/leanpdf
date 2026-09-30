@@ -5,13 +5,12 @@
  * its footprint on the page, so a huge image never needs more than its drawn size. Soft masks,
  * stencil masks and color-key masks become the alpha channel.
  */
-import { ccittDecode } from '../core/ccitt.ts';
+import type { ccittDecode } from '../core/ccitt.ts';
 import { concat } from '../core/bytes.ts';
 import { openStream, type StreamedData } from '../core/decode.ts';
 import type { PdfDocument } from '../core/document.ts';
 import { intOf, numOf, PdfDict, PdfName, PdfRef, type PdfObj } from '../core/objects.ts';
 import { loadColorSpace, type ColorSpace } from './colorspace.ts';
-import { decodeJpeg } from './jpeg.ts';
 import { canvas, type Canvas } from './util.ts';
 
 export interface LoadedImage {
@@ -516,13 +515,15 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Streamed
     const ratio = Math.min(w / Math.max(1, opts.width), h / Math.max(1, opts.height));
     const reduce = Math.max(0, Math.min(3, Math.floor(Math.log2(ratio))));
     const ct = intOf(data.parms?.get('ColorTransform'));
-    let jpeg = n === 4 || stencil || ct !== undefined ? decodeJpeg(encoded, reduce, ct) : null;
+    // The decoder loads on first use, like the other codecs browsers lack.
+    const own = async () => (await import('./jpeg.ts')).decodeJpeg(encoded, reduce, ct);
+    let jpeg = n === 4 || stencil || ct !== undefined ? await own() : null;
     if (jpeg?.components !== n) {
       jpeg = null;
       try {
         source = await browserJpeg(encoded, w, h, opts.width, opts.height);
       } catch {
-        const j = decodeJpeg(encoded, reduce, ct);
+        const j = await own();
         if (j?.components === n) jpeg = j;
       }
     }
@@ -548,6 +549,7 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Streamed
       if (stencil) source = grayToAlpha(source, source.width, source.height);
     }
   } else if (data.codec === 'CCITTFaxDecode' && encoded) {
+    const { ccittDecode } = await import('../core/ccitt.ts');
     const bits = ccittDecode(encoded, ccittParams(data.parms, w, h));
     if (!bits) {
       opts.warn('A fax-encoded image could not be decoded');

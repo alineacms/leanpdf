@@ -10,6 +10,7 @@ import * as mupdf from 'mupdf';
 import sharp from 'sharp';
 import { synthesize } from '../contract/contract.ts';
 import { bytes, DocBuilder, flate } from '../support/pdfgen.ts';
+import { ccittEncode } from '../render/ccitt-encoder.ts';
 import { compare, debugPng, pixel, startSession, theirs, type Session } from './render-support.ts';
 
 let session: Session | undefined;
@@ -181,6 +182,16 @@ describe.skipIf(!!skip)('renderPage vs MuPDF', () => {
     };
     expect(inked(350, 400 - 310, 420, 400 - 245)).toBeGreaterThan(100);
     expect(inked(430, 400 - 310, 560, 400 - 245)).toBeGreaterThan(100);
+  });
+
+  test('images: CCITT fax (Group 4), decoded on demand', async () => {
+    const b = new DocBuilder();
+    const px = new Uint8Array(96 * 64);
+    for (let y = 0; y < 64; y++) for (let x = 0; x < 96; x++) px[y * 96 + x] = (x - 48) ** 2 + (y - 32) ** 2 < 900 !== ((x >> 3) % 2 === 0) ? 1 : 0;
+    const fax = ccittEncode(px, 96, 64, { k: -1, eob: true });
+    const im = b.stream('/Type /XObject /Subtype /Image /Width 96 /Height 64 /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns 96 /Rows 64 >>', fax);
+    b.page({ width: 300, height: 200, content: 'q 288 0 0 192 6 4 cm /F Do Q', xobjects: { F: im } });
+    await check('ccitt', b.finish().build().bytes, { mae: 6, bad: 0.02 });
   });
 
   test('text: fonts that are not embedded', async () => {
