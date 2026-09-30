@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as mupdf from 'mupdf';
 import { CORPUS, CORPUS_DIR, ensureCorpus } from './corpus.ts';
+import { markdownTables, type Row } from './table.ts';
 
 const root = new URL('../', import.meta.url).pathname;
 const bench = new URL('./', import.meta.url).pathname;
@@ -53,18 +54,6 @@ const files = arg('files') ?? Object.keys(CORPUS);
 const tools = TOOLS.filter((t) => !arg('tools') || arg('tools')!.includes(t.id));
 const TIMEOUT = Number(process.env.BENCH_TIMEOUT_S ?? 1200) * 1000;
 
-interface Row {
-  file: string;
-  tool: string;
-  status: string;
-  seconds: number;
-  cpuSeconds: number;
-  peakMb: number;
-  inBytes: number;
-  outBytes: number;
-  valid: string;
-  psnr: number | null;
-}
 
 function render(bytes: Uint8Array, pages: number): { w: number; h: number; px: Uint8Array }[] {
   const doc = mupdf.Document.openDocument(bytes, 'application/pdf');
@@ -106,8 +95,9 @@ for (const [file] of (await ensureCorpus(files)).map((p, i) => [files[i], p])) {
     const t0 = performance.now();
     const r = Bun.spawnSync(['bun', `${bench}measure.ts`, ...argv], { stdout: 'ignore', stderr: 'pipe', timeout: TIMEOUT, cwd: bench });
     const seconds = (performance.now() - t0) / 1000;
-    const err = r.stderr.toString();
-    const m = /@@RUSAGE (.*)/.exec(err);
+    const stderr = r.stderr.toString();
+    const m = /@@RUSAGE (.*)/.exec(stderr);
+    const err = stderr.replace(/\n?@@RUSAGE .*\n?/, '');
     const usage = m ? JSON.parse(m[1]) : { exitCode: -1, signal: r.signalCode, cpu: 0, maxRssKb: 0 };
     const cpuSeconds = usage.cpu;
     const peakMb = usage.maxRssKb / 1024;
@@ -115,7 +105,7 @@ for (const [file] of (await ensureCorpus(files)).map((p, i) => [files[i], p])) {
     if (r.signalCode) status = 'timeout';
     else if (usage.signal) status = `killed (${usage.signal})`;
     else if (usage.exitCode !== 0) {
-      status = /heap out of memory|Allocation failed|RangeError: Array buffer allocation failed|Cannot enlarge memory|ERR_FS_FILE_TOO_LARGE|out of memory/i.test(err)
+      status = /heap out of memory|Allocation failed|RangeError: Array buffer allocation failed|Cannot enlarge memory|ERR_FS_FILE_TOO_LARGE|out of memory|(malloc|realloc|calloc) \(\d+ bytes\) failed/i.test(err)
         ? 'out of memory'
         : `failed (${err.trim().split('\n').at(-1)?.slice(0, 80)})`;
     }
@@ -133,23 +123,7 @@ for (const [file] of (await ensureCorpus(files)).map((p, i) => [files[i], p])) {
   }
 }
 
-const mb = (n: number) => (n >= 10 << 20 ? (n / 1048576).toFixed(0) : (n / 1048576).toFixed(1)) + ' MB';
-let md = '';
-for (const file of files) {
-  const rs = rows.filter((r) => r.file === file);
-  if (!rs.length) continue;
-  md += `\n#### ${file} (${mb(rs[0].inBytes)})\n\n`;
-  md += '| Tool | Output | Saved | Wall time | CPU time | Peak RSS | Valid (qpdf) | PSNR |\n|---|--:|--:|--:|--:|--:|:-:|--:|\n';
-  for (const r of rs) {
-    if (r.status !== 'ok') {
-      md += `| ${r.tool} | ${r.status} | | ${r.seconds.toFixed(1)} s | ${r.cpuSeconds.toFixed(1)} s | ${r.peakMb.toFixed(0)} MB | | |\n`;
-      continue;
-    }
-    const saved = `${(100 * (1 - r.outBytes / r.inBytes)).toFixed(0)}%`;
-    const q = r.psnr === null ? '–' : r.psnr === Infinity ? '∞' : `${r.psnr.toFixed(1)} dB`;
-    md += `| ${r.tool} | ${mb(r.outBytes)} | ${saved} | ${r.seconds.toFixed(1)} s | ${r.cpuSeconds.toFixed(1)} s | ${r.peakMb.toFixed(0)} MB | ${r.valid} | ${q} |\n`;
-  }
-}
+const md = markdownTables(rows, files);
 // JSON has no Infinity (it would become null, like "not measured"): pixel-identical is "Infinity".
 writeFileSync(`${outDir}results.json`, `${JSON.stringify(rows, (_, v) => (v === Infinity ? 'Infinity' : v), 2)}\n`);
 writeFileSync(`${outDir}results.md`, md);

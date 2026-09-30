@@ -47,7 +47,8 @@ also measures the size of the browser entry). Sections of the README listed in `
 
 Numbers on the home and benchmarks pages come from `bench/results.json`. To refresh them, run the
 benchmark (see the Methodology section of the benchmarks page), then
-`cp bench/.out/results.json bench/results.json` and commit it. Without that file the benchmarks
+`cp bench/.out/results.json bench/results.json`, update the README's tables with
+`bun bench/readme.ts`, and commit both. Without that file the benchmarks
 page shows a notice and the home page falls back to the README's memory figure.
 
 ## The app

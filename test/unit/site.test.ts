@@ -84,7 +84,16 @@ describe('docs from README.md', () => {
 
   test('every README section becomes a docs heading, with the intro as Overview', () => {
     const { headings, html } = renderDocs(readme);
-    const expected = [...readme.matchAll(/^(##+) (.+)$/gm)].map((m) => m[2].replace(/`/g, '')).filter((t) => t !== 'Releasing');
+    // Excluded sections go with their subsections.
+    const expected: string[] = [];
+    let skip = 0;
+    for (const m of readme.matchAll(/^(##+) (.+)$/gm)) {
+      const level = m[1].length;
+      const text = m[2].replace(/`/g, '');
+      if (skip && level <= skip) skip = 0;
+      if (!skip && (text === 'Releasing' || text === 'Benchmarks')) skip = level;
+      if (!skip) expected.push(text);
+    }
     expect(headings[0].text).toBe('Overview');
     expect(headings.slice(1).map((h) => h.text)).toEqual(expected);
     expect(html).not.toContain('BENCHMARK-SUMMARY');
@@ -96,6 +105,7 @@ describe('docs from README.md', () => {
     expect(md).toBe('## Overview\n\nIntro\n\n## Keep\n\nk\n\n## Next\n\nn');
     expect(resolveReadmeLink('LICENSE')).toBe('https://github.com/benmerckx/leanpdf/blob/main/LICENSE');
     expect(resolveReadmeLink('#install')).toBe('#install');
+    expect(resolveReadmeLink('#benchmarks')).toBe('/benchmarks/');
     expect(resolveReadmeLink('https://sharp.pixelplumbing.com/')).toBe('https://sharp.pixelplumbing.com/');
   });
 });

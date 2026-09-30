@@ -1,6 +1,6 @@
 /** Benchmarks page, rendered from bench/results.json at build time. */
 import { GITHUB_URL } from '../config.ts';
-import { fileSection, fmtMb, fmtRss, isLeanpdf, type BenchData } from '../bench.ts';
+import { fileSection, fmtMb, fmtRss, isLeanpdf, plainTool, type BenchData } from '../bench.ts';
 import { codeBlock, escapeHtml } from '../highlight.ts';
 import { page, type Assets } from './layout.ts';
 
@@ -43,16 +43,21 @@ function findings(data: BenchData): string {
   if (lean.length) {
     const peaks = lean.map((r) => r.peakMb);
     const largest = Math.max(...data.rows.map((r) => r.inBytes));
-    const onLargest = data.rows.filter((r) => r.inBytes === largest && !isLeanpdf(r) && !/native/i.test(r.tool) && r.status === 'ok').sort((a, b) => b.peakMb - a.peakMb);
+    const others = data.rows.filter((r) => r.inBytes === largest && !isLeanpdf(r) && !/native/i.test(r.tool));
+    const ok = others.filter((r) => r.status === 'ok').sort((a, b) => b.peakMb - a.peakMb);
+    const oom = others.filter((r) => r.status === 'out of memory');
     items.push(
       `<li><strong>Memory stays bounded.</strong> leanpdf peaked between ${fmtRss(Math.min(...peaks))} and ${fmtRss(Math.max(...peaks))} of RSS across all files, the ${fmtMb(largest)} one included.` +
-        (onLargest.length ? ` On that file, the JavaScript and WebAssembly tools that load the whole document needed up to ${fmtRss(onLargest[0].peakMb)}.` : '') +
+        (ok.length ? ` On that file, the JavaScript and WebAssembly tools that load the whole document needed up to ${fmtRss(ok[0].peakMb)}` : '') +
+        (oom.length ? `${ok.length ? ', and ' : ' On that file, '}${oom.map((r) => escapeHtml(plainTool(r.tool).replace(/[,(].*$/, '').trim())).join(' and ')} ran out of memory` : '') +
+        (ok.length || oom.length ? '.' : '') +
         '</li>',
     );
   }
   items.push(
-    "<li><strong>Ghostscript makes the smallest files.</strong> Its /ebook preset downsamples images to 150 dpi and rewrites the entire document, at a lower PSNR. <code>large.pdf</code> repeats one photo on every page, and Ghostscript deduplicates identical images; leanpdf doesn't deduplicate.</li>",
-    "<li><strong>Lossless tools barely shrink photos.</strong> MuPDF.js and qpdf don't touch image data, so photo-heavy files stay about the same size (or grow).</li>",
+    '<li><strong>Ghostscript makes the smallest files.</strong> Its /ebook preset downsamples images to 150 dpi and re-renders the whole document, at a lower PSNR. Its WebAssembly build is also the slowest, and a 16 MB download.</li>',
+    '<li><strong>pdf-lib skips predicted Flate images.</strong> pdf-lib has no image decoders, so its script hands JPEGs and plain Flate images to sharp and leaves the rest: the PNG-predicted scans and the Flate photos in <code>large.pdf</code> stay as they are.</li>',
+    "<li><strong>Lossless tools don't shrink photos.</strong> MuPDF.js and qpdf don't touch image data, so photo-heavy files stay about the same size (or grow).</li>",
     '<li><strong>Native programs use far less memory.</strong> The native Ghostscript and qpdf binaries use far less memory than any JavaScript runtime; they are here as reference points, not as alternatives you can run in a browser.</li>',
   );
   return `<ul>${items.join('\n')}</ul>`;

@@ -5,8 +5,11 @@ import { escapeHtml } from '../highlight.ts';
 import { renderMarkdown, type Heading } from '../markdown.ts';
 import { page, type Assets } from './layout.ts';
 
-/** README sections (by heading text) that are about maintaining the repository, not using the library. */
-const EXCLUDE = new Set(['Releasing']);
+/** README sections (by heading text) left out: repository maintenance, and what the site has its own page for. */
+const EXCLUDE = new Set(['Releasing', 'Benchmarks']);
+
+/** Links to excluded README sections that the site has a page for. */
+const SECTION_PAGES: Record<string, string> = { '#benchmarks': '/benchmarks/' };
 
 export interface Docs {
   html: string;
@@ -42,6 +45,7 @@ export function docsMarkdown(readme: string): string {
 }
 
 export function resolveReadmeLink(href: string): string {
+  if (Object.hasOwn(SECTION_PAGES, href)) return SECTION_PAGES[href];
   if (href.startsWith(SITE_URL)) return href.slice(SITE_URL.length) || '/';
   if (/^([a-z][a-z0-9+.-]*:|#|\/\/)/i.test(href)) return href;
   // Relative links in the README point into the repository.

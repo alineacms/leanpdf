@@ -146,7 +146,10 @@ describe.skipIf(!browser)('site pages', () => {
     await page.goto(url('/docs/'));
     const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8');
     const h2 = await page.locator('.prose h2').allTextContents();
-    for (const [, title] of readme.matchAll(/^## (.+)$/gm)) expect(h2).toContain(title.replace(/`/g, ''));
+    // Every section but Benchmarks, which the site has a page for (links to it lead there).
+    for (const [, title] of readme.matchAll(/^## (.+)$/gm)) if (title !== 'Benchmarks') expect(h2).toContain(title.replace(/`/g, ''));
+    expect(h2).not.toContain('Benchmarks');
+    expect(await page.locator('.prose a[href="/benchmarks/"]').count()).toBeGreaterThan(0);
     expect(h2[0]).toBe('Overview');
     expect(await page.locator('#compresspdfsource-sink-options-promisecompressreport').count()).toBe(1);
     // Every table-of-contents link points at a heading on the page.
