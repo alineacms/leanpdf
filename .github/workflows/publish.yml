@@ -1,15 +1,17 @@
 name: Publish to npm
 
-# Publishes when a GitHub release is published (tag vX.Y.Z matching package.json), or manually.
+# Publishes when a version tag is pushed (vX.Y.Z, matching package.json), then creates the GitHub
+# release for it, with the annotated tag's message as the notes. Can also be run by hand, as a dry
+# run by default.
 #
-# Authentication, either:
-# - an NPM_TOKEN repository secret (a granular npm token with read and write access); needed for
-#   the very first publish, because npm can only attach a trusted publisher to an existing package;
-# - or npm trusted publishing (OIDC): on npmjs.com, package settings -> Trusted publisher ->
-#   GitHub Actions, repository alineacms/leanpdf, workflow publish.yml. Then delete NPM_TOKEN.
+#   npm version 0.3.0 --no-git-tag-version   # or edit package.json
+#   git commit -am "Release 0.3.0" && git tag -a v0.3.0 -m "<release notes>" && git push --follow-tags
+#
+# Authentication is npm trusted publishing (OIDC): on npmjs.com, package settings -> Trusted
+# publisher -> GitHub Actions, repository alineacms/leanpdf, workflow publish.yml. No token needed.
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       dry-run:
@@ -18,8 +20,8 @@ on:
         default: true
 
 permissions:
-  contents: read
-  id-token: write # npm provenance
+  contents: write # create the GitHub release
+  id-token: write # npm trusted publishing and provenance
 
 jobs:
   publish:
@@ -38,8 +40,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Install Chromium for the browser tests
         run: bunx playwright-core install --with-deps chromium
-      - name: Check the release tag matches package.json
-        if: github.event_name == 'release'
+      - name: Check the tag matches package.json
+        if: github.ref_type == 'tag'
         run: |
           version=$(node -p "require('./package.json').version")
           if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
@@ -52,5 +54,10 @@ jobs:
       - run: bun run build
       - name: Publish
         run: npm publish --provenance --access public ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run && '--dry-run' || '' }}
+      - name: Create the GitHub release
+        if: github.ref_type == 'tag'
+        # Skipped when the release already exists (e.g. it was created in the GitHub UI, which
+        # also pushes the tag).
+        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --notes-from-tag --title "$GITHUB_REF_NAME"
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}

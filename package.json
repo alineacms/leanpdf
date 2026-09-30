@@ -1,6 +1,6 @@
 {
   "name": "leanpdf",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Small, low-memory, streaming PDF toolkit for browsers, Node and Bun. First tool: shrink PDFs by recompressing their images, copying everything else byte for byte.",
   "keywords": [
     "pdf",
