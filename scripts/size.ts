@@ -14,6 +14,7 @@ const SCENARIOS: { name: string; imports: string; budget?: number }[] = [
   { name: 'openPdf + attachments', imports: 'openPdf, listAttachments, attachmentStream' },
   { name: 'openPdf + images', imports: 'openPdf, listImages, extractImage' },
   { name: 'openPdf + extractText', imports: 'openPdf, extractText' },
+  { name: 'openPdf + renderPage', imports: 'openPdf, renderPage' },
   { name: 'rewritePdf (no plugins)', imports: 'rewritePdf' },
   { name: 'rewritePdf + all edit plugins', imports: 'rewritePdf, removeUnused, stripMetadata, removeJavaScript, removeAttachments, rotatePages, selectPages, recompressStreams, repairStreams' },
   { name: 'mergePdfs', imports: 'mergePdfs' },

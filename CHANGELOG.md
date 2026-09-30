@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `renderPage`: render pages to a canvas (Canvas 2D, main thread or worker). Embedded TrueType, OpenType, CFF, Type 1 and Type 3 fonts; images; shadings and patterns; transparency groups and soft masks; annotations; optional content. Not yet: JPEG 2000 and JBIG2 images.
+- Website: a View tab.
+
 ## 0.2.0
 
 leanpdf grows from an image compressor into a small, streaming PDF toolkit. Every feature is its own module, so importing only compressPdfBlob still bundles to 42.8 KB minified (16.5 KB gzipped).

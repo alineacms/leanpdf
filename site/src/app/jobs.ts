@@ -12,6 +12,7 @@ import { attachmentJob, imageJob, inspectJob } from './tools/inspect/job.ts';
 import { mergeJob } from './tools/merge/job.ts';
 import { textJob } from './tools/text/job.ts';
 import { unlockJob } from './tools/unlock/job.ts';
+import { viewJob } from './tools/view/job.ts';
 
 export const JOBS = {
   probe: probeJob,
@@ -23,6 +24,7 @@ export const JOBS = {
   edit: editJob,
   merge: mergeJob,
   unlock: unlockJob,
+  view: viewJob,
 };
 
 export type Jobs = { [K in keyof typeof JOBS]: JobTypes<(typeof JOBS)[K]> };

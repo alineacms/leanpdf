@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - name: Install qpdf
-        run: sudo apt-get update && sudo apt-get install -y qpdf
+        run: sudo apt-get update && sudo apt-get install -y qpdf fonts-urw-base35
       - run: bun install --frozen-lockfile
       - name: Install Chromium for the browser tests
         run: bunx playwright-core install --with-deps chromium
@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Install qpdf
-        run: sudo apt-get update && sudo apt-get install -y qpdf
+        run: sudo apt-get update && sudo apt-get install -y qpdf fonts-urw-base35
       - run: bun install --frozen-lockfile
       - run: bun run build
       - name: Compress a generated PDF with the built CLI under Node ${{ matrix.node }}

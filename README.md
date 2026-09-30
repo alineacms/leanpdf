@@ -275,10 +275,11 @@ Bundlers keep only what you import. Minified sizes, including the core each need
 | `openPdf` + `getInfo` | 29.3 KB | 11.6 KB |
 | `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 30.8 KB | 11.9 KB |
 | `openPdf` + `extractText` | 46.0 KB | 19.8 KB |
+| `openPdf` + `renderPage` | 118.0 KB | 49.3 KB |
 | `rewritePdf` + all editing plugins | 49.6 KB | 18.7 KB |
 | `mergePdfs` | 40.6 KB | 15.7 KB |
 | `decryptPdf` | 42.7 KB | 17.0 KB |
-| everything | 133.8 KB | 52.3 KB |
+| everything | 211.8 KB | 84.4 KB |
 
 ### I/O
 

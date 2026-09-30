@@ -31,3 +31,6 @@ export const copy = /* @__PURE__ */ svg('<rect width="14" height="14" x="8" y="8
 export const chevronUp = /* @__PURE__ */ svg('<path d="m18 15-6-6-6 6"/>');
 export const chevronDown = /* @__PURE__ */ svg('<path d="m6 9 6 6 6-6"/>');
 export const close = /* @__PURE__ */ svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>');
+export const eye = /* @__PURE__ */ svg('<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>');
+export const chevronLeft = /* @__PURE__ */ svg('<path d="m15 18-6-6 6-6"/>');
+export const chevronRight = /* @__PURE__ */ svg('<path d="m9 18 6-6-6-6"/>');

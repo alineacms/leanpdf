@@ -196,6 +196,20 @@ describe.skipIf(!browser)('app tools', () => {
     await page.close();
   }, 45_000);
 
+  test('View renders pages and navigates between them', async () => {
+    const { page, errors } = await openTool('view');
+    await page.setInputFiles('#view-file', docPath);
+    await page.waitForFunction(() => document.getElementById('view-canvas')?.dataset.page === '0', undefined, { timeout: 15_000 });
+    expect(await page.textContent('#view-count')).toBe('3');
+    expect(await page.evaluate(() => (document.getElementById('view-canvas') as HTMLCanvasElement).width)).toBeGreaterThan(300);
+    await page.click('#view-next');
+    await page.waitForFunction(() => document.getElementById('view-canvas')?.dataset.page === '1', undefined, { timeout: 15_000 });
+    expect(await page.inputValue('#view-page')).toBe('2');
+    expect(await page.isVisible('#view-error')).toBe(false);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 45_000);
+
   test.skipIf(!hasQpdf)('Unlock asks for the password and writes an unencrypted copy', async () => {
     const { page, errors } = await openTool('unlock');
     await page.setInputFiles('#unlock-file', encPath);

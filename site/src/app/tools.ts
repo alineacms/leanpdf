@@ -10,5 +10,6 @@ import { inspectTool } from './tools/inspect/ui.ts';
 import { mergeTool } from './tools/merge/ui.ts';
 import { textTool } from './tools/text/ui.ts';
 import { unlockTool } from './tools/unlock/ui.ts';
+import { viewTool } from './tools/view/ui.ts';
 
-export const TOOLS: Tool[] = [compressTool, inspectTool, textTool, editTool, mergeTool, unlockTool];
+export const TOOLS: Tool[] = [compressTool, viewTool, inspectTool, textTool, editTool, mergeTool, unlockTool];

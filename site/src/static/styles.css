@@ -758,6 +758,21 @@ select.input { cursor: pointer; }
 .hits b { color: var(--text); }
 .hits mark { background: var(--accent-soft); color: var(--text); border-radius: 3px; padding: 0 1px; }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.view-tool { display: grid; gap: 16px; }
+.viewer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.page-field { display: inline-flex; align-items: center; gap: 6px; font-size: 0.925rem; color: var(--text-2); }
+.page-field .input { width: auto; padding: 6px 8px; }
+.page-field input.input { width: 5em; }
+.viewer {
+  overflow: auto;
+  max-height: 80vh;
+  padding: 16px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.viewer:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.viewer canvas { display: block; margin: 0 auto; background: #fff; box-shadow: var(--shadow); max-width: none; }
 
 .not-found { padding: 80px 0; text-align: center; }
 .not-found .cta { justify-content: center; }

@@ -21,6 +21,9 @@ export { attachmentStream, listAttachments, readAttachment, type Attachment, typ
 export { extractImage, listImages, type ExtractedImage, type ImageInfo } from './features/images.ts';
 export { extractAllText, extractText, type PageText, type TextOptions } from './features/text.ts';
 
+// Rendering (Canvas 2D, on the main thread or in a worker with OffscreenCanvas)
+export { renderPage, type RenderOptions, type RenderResult } from './render/page.ts';
+
 // Rewrite plugins (combine any of them in one rewritePdf pass)
 export { removeUnused } from './features/unused.ts';
 export { removeAttachments, removeJavaScript, stripMetadata, type StripMetadataOptions } from './features/strip.ts';
