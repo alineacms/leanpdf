@@ -1,11 +1,13 @@
 name: Publish to npm
 
-# Publishes when a version tag is pushed (vX.Y.Z, matching package.json), then creates the GitHub
-# release for it, with the annotated tag's message as the notes. Can also be run by hand, as a dry
-# run by default.
+# Publishes leanpdf to npm, then creates the GitHub release (and its vX.Y.Z tag) with the notes of
+# that version's section in CHANGELOG.md. Runs when a vX.Y.Z tag is pushed, or by hand from the
+# Actions tab (a dry run unless "dry-run" is unticked). Re-running is safe: a version already on
+# npm is not published again, and an existing release is left alone.
 #
-#   npm version 0.3.0 --no-git-tag-version   # or edit package.json
-#   git commit -am "Release 0.3.0" && git tag -a v0.3.0 -m "<release notes>" && git push --follow-tags
+# To release: set the version in package.json, add its section to CHANGELOG.md, push to main,
+# then either push the tag (git tag v0.3.0 && git push origin v0.3.0) or run this workflow on
+# main with dry-run off.
 #
 # Authentication is npm trusted publishing (OIDC): on npmjs.com, package settings -> Trusted
 # publisher -> GitHub Actions, repository alineacms/leanpdf, workflow publish.yml. No token needed.
@@ -15,17 +17,19 @@ on:
   workflow_dispatch:
     inputs:
       dry-run:
-        description: Run npm publish --dry-run
+        description: Run npm publish --dry-run and skip the GitHub release
         type: boolean
         default: true
 
 permissions:
-  contents: write # create the GitHub release
+  contents: write # create the GitHub release and its tag
   id-token: write # npm trusted publishing and provenance
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -40,24 +44,37 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Install Chromium for the browser tests
         run: bunx playwright-core install --with-deps chromium
-      - name: Check the tag matches package.json
-        if: github.ref_type == 'tag'
+      - name: Version, tag and release notes
+        id: version
         run: |
           version=$(node -p "require('./package.json').version")
-          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
             echo "Tag $GITHUB_REF_NAME does not match package.json version $version" >&2
             exit 1
           fi
+          # The CHANGELOG.md section for this version, without its heading.
+          awk -v v="$version" '/^## / { on = ($2 == v); next } on' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "published=$(npm view "leanpdf@$version" version 2>/dev/null)" >> "$GITHUB_OUTPUT"
       - run: bun run typecheck
       - run: bun run size
       - run: bun test
       - run: bun run build
       - name: Publish
-        run: npm publish --provenance --access public ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run && '--dry-run' || '' }}
+        if: steps.version.outputs.published == ''
+        run: npm publish --provenance --access public ${{ env.DRY_RUN == 'true' && '--dry-run' || '' }}
       - name: Create the GitHub release
-        if: github.ref_type == 'tag'
-        # Skipped when the release already exists (e.g. it was created in the GitHub UI, which
-        # also pushes the tag).
-        run: gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --notes-from-tag --title "$GITHUB_REF_NAME"
+        if: env.DRY_RUN != 'true'
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists"
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
         env:
           GH_TOKEN: ${{ github.token }}

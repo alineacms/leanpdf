@@ -556,16 +556,13 @@ The browser tests drive headless Chromium through `playwright-core`; set `CHROMI
 
 ### Releasing
 
-`.github/workflows/publish.yml` runs when a `v` + version tag is pushed: it checks the tag matches
-`package.json`, runs the typecheck, size budget and full test suite, publishes to npm with
-provenance through npm trusted publishing (no token), and creates the GitHub release with the
-annotated tag's message as its notes.
+`.github/workflows/publish.yml` publishes to npm with provenance through npm trusted publishing
+(no token), after the typecheck, size budget and full test suite, and then creates the GitHub
+release and its `v` tag with the version's section of [`CHANGELOG.md`](CHANGELOG.md) as notes.
 
-```sh
-npm version 0.3.0 --no-git-tag-version
-git commit -am "Release 0.3.0"
-git tag -a v0.3.0 -m "What changed"
-git push --follow-tags
-```
+1. Set the version in `package.json` and add its section to `CHANGELOG.md`; push to `main`.
+2. Push the tag (`git tag v0.3.0 && git push origin v0.3.0`), or run the workflow on `main` from
+   the Actions tab with "dry-run" unticked (ticked, it only does `npm publish --dry-run`).
 
-It can also be run by hand from the Actions tab, as a dry run by default.
+Re-running is safe: a version already on npm isn't published again, and an existing release is
+left alone.
