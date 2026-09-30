@@ -1,0 +1,13 @@
+// Cloudflare deploy config for the website (site/). `wrangler deploy` uploads the built site as a
+// Worker with static assets: no Worker code, just the files. The name must match the Worker's name
+// in the Cloudflare dashboard. See site/README.md.
+{
+  "name": "leanpdf",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    // Output of `bun run site:build`; its _headers file sets COOP/COEP, CSP and caching.
+    "directory": "./site/dist",
+    // Unknown paths get site/dist/404.html with status 404.
+    "not_found_handling": "404-page"
+  }
+}

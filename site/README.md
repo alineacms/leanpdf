@@ -2,7 +2,7 @@
 
 The static website for leanpdf: a landing page, the in-browser PDF app, the docs (generated from
 the root `README.md`) and the benchmarks (generated from `bench/results.json`). Plain HTML, CSS and
-TypeScript, no framework, no third-party requests. It is built for Cloudflare Pages but is just
+TypeScript, no framework, no third-party requests. It is deployed to Cloudflare but is just
 static files.
 
 ```sh
@@ -23,7 +23,7 @@ every page and the Compress tool in headless Chromium) and `bun test test/browse
 ```
 site/
   build.ts            buildSite() -> Map<path, bytes>; writes site/dist when run
-  serve.ts            dev server and static server, both applying _headers like Pages
+  serve.ts            dev server and static server, both applying _headers like Cloudflare
   screenshots.ts
   src/
     config.ts         GitHub/npm links, SITE_URL
@@ -88,60 +88,49 @@ file handle and uses `compressPdf` with a `WritableStreamSink`), and otherwise b
 `performance.measureUserAgentSpecificMemory()` (the page is cross-origin isolated), else
 `performance.memory`, else it says "unavailable".
 
-## Hosting on Cloudflare Pages
+## Hosting on Cloudflare
 
-The build writes `site/dist/_headers` (generated from `src/headers.ts`), which Pages applies to
-every response:
+The site is deployed as a Worker with static assets: no Worker code, just the files in
+`site/dist`. `wrangler.jsonc` at the repository root says so (`assets.directory`), and Cloudflare
+builds and deploys it from the repository on every push.
+
+The build writes `site/dist/_headers` (generated from `src/headers.ts`), which Cloudflare applies
+to every response:
 
 - `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` on
   every path, so the app is `crossOriginIsolated`. Everything is same-origin, so nothing breaks.
 - A strict `Content-Security-Policy`: only same-origin scripts, styles, images, workers and
   connections (plus `blob:` for the download link), no framing.
 - `Cache-Control: public, max-age=31536000, immutable` for `/assets/*` (content-hashed names).
-  HTML keeps Pages' default (revalidate every time).
+  HTML keeps the default (revalidate every time).
 
-`404.html` at the root makes Pages answer unknown paths with it and status 404 (without it, Pages
-would treat the site as a single-page app).
+`not_found_handling: "404-page"` answers unknown paths with `404.html` and status 404.
 
-### Option 1: GitHub Actions (set up in this repository)
+### Setting it up
 
-`.github/workflows/site.yml` builds the site on every push and pull request, and on pushes to
-`main` deploys `site/dist` with `cloudflare/wrangler-action@v3`
-(`wrangler pages deploy site/dist --project-name=leanpdf --branch=main`).
-
-1. Create the Pages project once, as a Direct Upload project named `leanpdf` with production
-   branch `main`: in the Cloudflare dashboard (Workers & Pages → Create → Pages → Upload assets),
-   or with `bunx wrangler pages project create leanpdf --production-branch=main`. It is then served
-   at `https://leanpdf.pages.dev` (if that name is taken, Cloudflare picks another subdomain;
-   update `SITE_URL` in the workflow).
-2. Create an API token (My Profile → API Tokens → Create Token → Custom token) with the permission
-   **Account → Cloudflare Pages → Edit**.
-3. Add repository secrets (Settings → Secrets and variables → Actions):
-   - `CLOUDFLARE_API_TOKEN`: that token;
-   - `CLOUDFLARE_ACCOUNT_ID`: the account ID (shown on the Workers & Pages overview page).
-
-### Option 2: Cloudflare Pages Git integration
-
-Instead of the workflow, connect the repository in the dashboard (Workers & Pages → Create →
-Pages → Connect to Git) and use:
+In the Cloudflare dashboard: Workers & Pages → Create → Import a repository, pick this repository,
+and use:
 
 | Setting | Value |
 |---|---|
-| Framework preset | None |
+| Project name | `leanpdf` (must match `name` in `wrangler.jsonc`; change both together) |
 | Build command | `bun run site:build` |
-| Build output directory | `site/dist` |
-| Environment variable | `SITE_URL` = the site's public origin (optional, default `https://leanpdf.pages.dev`) |
+| Deploy command | `npx wrangler deploy` (the default) |
+| Build variable | `SITE_URL` = the site's public origin, e.g. `https://leanpdf.<your-subdomain>.workers.dev` |
 
-Pages' v2 build image includes Bun (set the `BUN_VERSION` variable to pin a version). If the build
-log shows the dependencies were not installed before the build command ran, use
-`bun install --frozen-lockfile && bun run site:build` as the build command. Then delete
-`.github/workflows/site.yml`, or remove its deploy step, so the site isn't deployed twice.
+`SITE_URL` is only used for canonical links and Open Graph URLs (default
+`https://leanpdf.pages.dev`). If the build log shows the dependencies were not installed before
+the build command ran, use `bun install --frozen-lockfile && bun run site:build`.
+
+No API token or account ID is needed: Cloudflare's own build uses the account it runs in.
+`.github/workflows/site.yml` only checks that the site builds.
+
+To deploy by hand instead: `bun run site:build && bunx wrangler deploy` (it asks you to log in).
 
 ### Custom domain
 
-Add it under the Pages project → Custom domains, and build with `SITE_URL=https://your.domain`
-(the workflow's `env`, or the Pages environment variable) so canonical links and Open Graph URLs
-point at it.
+Add it under the Worker → Settings → Domains & Routes, and set the `SITE_URL` build variable to
+it so canonical links and Open Graph URLs point at it.
 
 ### Other static hosts
 

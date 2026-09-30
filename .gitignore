@@ -9,3 +9,4 @@ bench/.corpus/
 bench/.out/
 bench/node_modules/
 site/screenshots/
+.wrangler/
