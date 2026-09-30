@@ -310,6 +310,7 @@ async function checkRewrittenImage(num: number, o: ObjInfo, n: ObjInfo): Promise
   const dn = n.dict!;
   const ctx = { num };
   expect({ ...ctx, subtype: nameOf(di.get('Subtype')) }).toEqual({ ...ctx, subtype: 'Image' });
+  if (nameOf(dn.get('Filter')) === 'FlateDecode') return checkShrunkMask(num, o, n);
   expect({ ...ctx, filter: nameOf(dn.get('Filter')) }).toEqual({ ...ctx, filter: 'DCTDecode' });
   expect(n.data).toBeDefined();
   expect(o.data).toBeDefined();
@@ -336,4 +337,22 @@ async function checkRewrittenImage(num: number, o: ObjInfo, n: ObjInfo): Promise
   expect(dn.get('DecodeParms')).toBeUndefined();
   const sm = di.get('SMask');
   if (sm instanceof PdfRef) expect(dn.get('SMask')).toEqual(sm);
+}
+
+/** A shrunk soft mask: still gray and lossless (Flate + PNG predictor), inside the box, same aspect. */
+function checkShrunkMask(num: number, o: ObjInfo, n: ObjInfo): void {
+  const di = o.dict!;
+  const dn = n.dict!;
+  const ctx = { num };
+  const [w, h, ow, oh] = [di.get('Width'), di.get('Height'), dn.get('Width'), dn.get('Height')] as number[];
+  expect({ ...ctx, cs: nameOf(dn.get('ColorSpace')), bpc: dn.get('BitsPerComponent') }).toEqual({ ...ctx, cs: 'DeviceGray', bpc: 8 });
+  expect(text(dn.raw.get('DecodeParms')!)).toBe(`<< /Predictor 15 /Colors 1 /BitsPerComponent 8 /Columns ${ow} >>`);
+  expect(ow <= 1600 && oh <= 1600 && ow <= w && oh <= h).toBe(true);
+  expect(Math.abs(ow / oh - w / h)).toBeLessThan(0.01);
+  expect(n.data!.length).toBeLessThan(o.data!.length);
+  const encoding = new Set(['Width', 'Height', 'BitsPerComponent', 'Filter', 'DecodeParms', 'Decode', 'DL', 'Length']);
+  for (const [k, raw] of di.raw) {
+    if (encoding.has(k)) continue;
+    expect({ ...ctx, k, raw: text(dn.raw.get(k) ?? new Uint8Array()) }).toEqual({ ...ctx, k, raw: text(raw) });
+  }
 }

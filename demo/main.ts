@@ -66,7 +66,7 @@ function fmtBytes(n: number): string {
 const SKIP_REASONS: Record<string, string> = {
   small: 'below the size threshold',
   noGain: 'no worthwhile saving',
-  softMask: 'transparency mask',
+  softMask: 'transparency mask kept as is',
   imageMask: 'stencil mask',
   colorKeyMask: 'colour-key mask',
   matte: 'pre-blended (Matte)',

@@ -1,9 +1,10 @@
 import { ascii, latin1 } from './bytes.ts';
 import type { ObjSpan, PdfDocument } from './document.ts';
-import { inflateAll, inflateRange } from './flate.ts';
+import { Deflater, inflateAll, inflateRange } from './flate.ts';
 import { sniffJpeg, type JpegInfo } from './jpeg.ts';
 import { encodeName, intOf, nameOf, PdfDict, type PdfObj } from './objects.ts';
 import { RowDecoder } from './predictor.ts';
+import { GrayDownscaler } from './resize.ts';
 import type { ColorComponents, ImageInput } from './types.ts';
 
 /** How to get at the samples of an image we can recompress. */
@@ -18,6 +19,8 @@ export interface ImagePlan {
   predictor: number;
   /** /ColorTransform from the DCT decode parameters, if given. */
   colorTransform?: number;
+  /** The image is another image's /SMask: it may only be downscaled, losslessly re-encoded. */
+  mask: boolean;
 }
 
 const FILTER_ALIASES: Record<string, string> = {
@@ -74,7 +77,6 @@ export async function classifyImage(
 ): Promise<ImagePlan | string | null> {
   if (nameOf(await doc.resolve(d.get('Subtype'))) !== 'Image') return null;
   if (d.dup) return 'malformed';
-  if (usedAsSoftMask) return 'softMask';
   if ((await doc.resolve(d.get('ImageMask'))) === true) return 'imageMask';
   if (d.get('F') !== undefined) return 'external';
 
@@ -99,6 +101,8 @@ export async function classifyImage(
     return 'malformed';
   }
   const cs = await colorSpace(doc, d.get('ColorSpace'));
+  // Soft masks stay gray and lossless: only Flate or unfiltered gray masks can be shrunk.
+  if (usedAsSoftMask && (typeof cs === 'string' || cs.comps !== 1 || chain === 'dct' || chain === 'flate-dct')) return 'softMask';
   if (typeof cs === 'string') return cs;
   if (width * height * cs.comps > MAX_SAMPLES) return 'tooLarge';
 
@@ -108,6 +112,8 @@ export async function classifyImage(
     for (let i = 0; i < decode.length; i++) if ((await doc.resolve(decode[i])) !== i % 2) return 'decode';
   }
   if (Array.isArray(await doc.resolve(d.get('Mask')))) return 'colorKeyMask';
+  // A mask with /Matte belongs to a pre-blended image and must keep that image's dimensions.
+  if (usedAsSoftMask && d.get('Matte') !== undefined) return 'matte';
   const smask = await doc.resolve(d.get('SMask'));
   // A matte colour means the image is pre-blended and must keep its mask's dimensions.
   if (smask instanceof PdfDict && smask.get('Matte') !== undefined) return 'matte';
@@ -117,7 +123,7 @@ export async function classifyImage(
     const p = await doc.resolve(Array.isArray(dp) ? dp[i] : i === 0 ? dp : undefined);
     return p instanceof PdfDict ? p : undefined;
   };
-  const plan: ImagePlan = { width, height, comps: cs.comps, icc: cs.icc, chain, predictor: 1 };
+  const plan: ImagePlan = { width, height, comps: cs.comps, icc: cs.icc, chain, predictor: 1, mask: usedAsSoftMask };
   if (chain === 'flate' || chain === 'flate-dct') {
     const p = await parms(0);
     const predictor = (p && intOf(await doc.resolve(p.get('Predictor')))) ?? 1;
@@ -204,28 +210,60 @@ export function checkOutput(data: Uint8Array): JpegInfo | null {
 }
 
 /**
- * The rewritten image object: all original keys in their original order and form, except the
- * ones describing the encoding, which are replaced.
+ * Shrink a soft mask to (ow, oh) in one streaming pass: inflate and un-predict row by row,
+ * area-average, and re-deflate with the PNG Up predictor. Memory is a few output rows plus the
+ * compressed result. Returns the new Flate data, or a skip reason.
  */
-export function buildImageObject(
-  num: number,
-  gen: number,
-  d: PdfDict,
-  data: Uint8Array,
-  info: JpegInfo,
-  keepColorSpace: boolean,
-): Uint8Array[] {
-  const updates = new Map<string, string | null>([
-    ['Width', String(info.width)],
-    ['Height', String(info.height)],
-    ['BitsPerComponent', '8'],
-    ['Filter', '/DCTDecode'],
-    ['DecodeParms', null],
-    ['Decode', null],
-    ['DL', null],
-    ['Length', String(data.length)],
-  ]);
-  if (!keepColorSpace) updates.set('ColorSpace', info.components === 1 ? '/DeviceGray' : '/DeviceRGB');
+export async function shrinkMask(doc: PdfDocument, span: ObjSpan, plan: ImagePlan, ow: number, oh: number): Promise<Uint8Array | string> {
+  const { width, height } = plan;
+  const deflater = new Deflater();
+  const rowLen = ow + 1;
+  const perBatch = Math.max(1, Math.floor((1 << 16) / rowLen));
+  let batch = new Uint8Array(rowLen * perBatch);
+  let fill = 0;
+  const prev = new Uint8Array(ow);
+  const scaler = new GrayDownscaler(width, height, ow, oh, (row) => {
+    batch[fill] = 2; // PNG Up
+    for (let j = 0; j < ow; j++) batch[fill + 1 + j] = row[j] - prev[j];
+    prev.set(row);
+    fill += rowLen;
+    if (fill === batch.length) {
+      void deflater.write(batch);
+      batch = new Uint8Array(batch.length);
+      fill = 0;
+    }
+  });
+  const dec: RowDecoder = new RowDecoder(plan.predictor, 1, 8, width, (row): boolean => {
+    scaler.push(row);
+    return dec.rows >= height;
+  });
+  const start = span.dataStart;
+  const len = span.dataEnd - start;
+  try {
+    if (plan.chain === 'raw') {
+      for (let p = start, end = start + Math.min(len, width * height); p < end && dec.rows < height; p += 1 << 16) {
+        dec.push(await doc.reader.raw(p, Math.min(1 << 16, end - p)));
+      }
+    } else {
+      await inflateRange(doc.reader, start, len, (c) => dec.push(c));
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name === 'PdfSyntaxError') return 'decodeError';
+    throw e;
+  }
+  if (dec.rows < height) return 'decodeError';
+  if (fill) void deflater.write(batch.subarray(0, fill));
+  return deflater.finish();
+}
+
+/**
+ * A rewritten image object: all original keys in their original order and form, except the ones
+ * in `updates`, which are replaced (or removed when null); new keys go at the end.
+ */
+export function rewriteImage(num: number, gen: number, d: PdfDict, data: Uint8Array, updates: Map<string, string | null>): Uint8Array[] {
+  updates.set('Length', String(data.length));
+  updates.set('Decode', null);
+  updates.set('DL', null);
   let s = `${num} ${gen} obj\n<<`;
   for (const [k, raw] of d.raw) {
     const u = updates.get(k);
@@ -237,3 +275,32 @@ export function buildImageObject(
   return [ascii(s + '>>\nstream\n'), data, ascii('\nendstream\nendobj\n')];
 }
 
+/** The rewritten object for a recompressed JPEG. */
+export function buildImageObject(num: number, gen: number, d: PdfDict, data: Uint8Array, info: JpegInfo, keepColorSpace: boolean): Uint8Array[] {
+  const updates = new Map<string, string | null>([
+    ['Width', String(info.width)],
+    ['Height', String(info.height)],
+    ['BitsPerComponent', '8'],
+    ['Filter', '/DCTDecode'],
+    ['DecodeParms', null],
+  ]);
+  if (!keepColorSpace) updates.set('ColorSpace', info.components === 1 ? '/DeviceGray' : '/DeviceRGB');
+  return rewriteImage(num, gen, d, data, updates);
+}
+
+/** The rewritten object for a shrunk soft mask (Flate, PNG Up predictor). */
+export function buildMaskObject(num: number, gen: number, d: PdfDict, data: Uint8Array, width: number, height: number): Uint8Array[] {
+  return rewriteImage(
+    num,
+    gen,
+    d,
+    data,
+    new Map<string, string | null>([
+      ['Width', String(width)],
+      ['Height', String(height)],
+      ['BitsPerComponent', '8'],
+      ['Filter', '/FlateDecode'],
+      ['DecodeParms', `<< /Predictor 15 /Colors 1 /BitsPerComponent 8 /Columns ${width} >>`],
+    ]),
+  );
+}

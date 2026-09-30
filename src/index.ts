@@ -7,7 +7,8 @@ export * from './core/types.ts';
 export { compressPdf } from './core/compress.ts';
 export { PdfEncryptedError, PdfError, PdfFormatError, SourceReadError } from './core/errors.ts';
 export { BlobPartsSink, BlobSource, WritableStreamSink } from './io/blob.ts';
-export { BrowserImageCodec, fitInside } from './codecs/browser.ts';
+export { BrowserImageCodec } from './codecs/browser.ts';
+export { fitInside } from './core/resize.ts';
 
 /**
  * Compress a PDF Blob or File. Passthrough bytes stay as slices of the input blob, so memory use

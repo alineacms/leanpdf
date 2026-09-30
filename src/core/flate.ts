@@ -97,21 +97,45 @@ export async function inflateAll(
   return { data: concat(parts), complete: ok && !over };
 }
 
-/** Deflate (zlib format) a sequence of chunks produced on demand. */
+/**
+ * Incremental zlib-format compressor over CompressionStream. Chunks must not be modified after
+ * `write`. Awaiting `write` applies backpressure; callers that can't wait may ignore it.
+ */
+export class Deflater {
+  private readonly w: WritableStreamDefaultWriter<Uint8Array>;
+  private readonly out: Uint8Array[] = [];
+  private readonly pump: Promise<void>;
+
+  constructor() {
+    const cs = new CompressionStream('deflate');
+    this.w = cs.writable.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
+    const r = cs.readable.getReader();
+    this.pump = (async () => {
+      for (;;) {
+        const { done, value } = await r.read();
+        if (done) return;
+        this.out.push(value);
+      }
+    })();
+    this.pump.catch(() => {});
+  }
+
+  write(chunk: Uint8Array): Promise<void> {
+    const p = this.w.write(chunk);
+    p.catch(() => {});
+    return p;
+  }
+
+  async finish(): Promise<Uint8Array> {
+    await this.w.close();
+    await this.pump;
+    return concat(this.out);
+  }
+}
+
+/** Deflate (zlib format) a sequence of chunks produced on demand, with backpressure. */
 export async function deflate(chunks: Iterable<Uint8Array>): Promise<Uint8Array> {
-  const cs = new CompressionStream('deflate');
-  const w = cs.writable.getWriter();
-  const r = cs.readable.getReader();
-  const out: Uint8Array[] = [];
-  const pump = (async () => {
-    for (;;) {
-      const { done, value } = await r.read();
-      if (done) return;
-      out.push(value);
-    }
-  })();
-  for (const c of chunks) await w.write(c as Uint8Array<ArrayBuffer>);
-  await w.close();
-  await pump;
-  return concat(out);
+  const d = new Deflater();
+  for (const c of chunks) await d.write(c);
+  return d.finish();
 }

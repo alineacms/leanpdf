@@ -1,6 +1,7 @@
 import { PdfDocument, type ObjSpan } from './document.ts';
 import { isFatal, PdfEncryptedError } from './errors.ts';
-import { buildImageObject, checkOutput, classifyImage, loadImage, type ImagePlan } from './image.ts';
+import { buildImageObject, buildMaskObject, checkOutput, classifyImage, loadImage, shrinkMask, type ImagePlan } from './image.ts';
+import { fitInside } from './resize.ts';
 import { nameOf, PdfDict, PdfRef } from './objects.ts';
 import type { ObjHeader } from './objread.ts';
 import { SourceReader } from './reader.ts';
@@ -160,6 +161,18 @@ async function run(source: RandomAccessSource, sink: OutputSink, options: Compre
     }
   };
 
+  const processMask = async (hdr: ObjHeader, span: ObjSpan, plan: ImagePlan, ow: number, oh: number): Promise<ImageResult> => {
+    try {
+      const data = await shrinkMask(doc, span, plan, ow, oh);
+      if (typeof data === 'string') return { reason: data };
+      const oldLength = span.dataEnd - span.dataStart;
+      if (data.length > oldLength * o.minSavingsRatio) return { reason: 'noGain' };
+      return { parts: buildMaskObject(hdr.num, hdr.gen, hdr.value as PdfDict, data, ow, oh), saved: oldLength - data.length };
+    } catch (e) {
+      return isFatal(e) ? { fatal: e } : { reason: 'error' };
+    }
+  };
+
   const analyze = async (i: number): Promise<Plan> => {
     const num = order[i];
     if (dropped.has(num)) return { num, kind: 'drop' };
@@ -177,7 +190,13 @@ async function run(source: RandomAccessSource, sink: OutputSink, options: Compre
       if (plan !== null) {
         report.imagesSeen++;
         if (typeof plan === 'string') skip(plan);
-        else return { num, kind: 'image', span, task: processImage(hdr, span, plan) };
+        else if (!plan.mask) return { num, kind: 'image', span, task: processImage(hdr, span, plan) };
+        else {
+          // Soft masks shrink to the same box as their images; masks that already fit stay as they are.
+          const [ow, oh] = fitInside(plan.width, plan.height, recompress.maxWidth, recompress.maxHeight);
+          if (ow < plan.width || oh < plan.height || plan.chain === 'raw') return { num, kind: 'image', span, task: processMask(hdr, span, plan, ow, oh) };
+          skip('softMask');
+        }
       }
     }
     return { num, kind: 'copy', span };

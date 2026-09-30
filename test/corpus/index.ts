@@ -446,7 +446,8 @@ export const fixtures: Fixture[] = [
   {
     name: 'soft-masks',
     about: 'An image with an SMask, an image whose SMask has /Matte, and the masks themselves',
-    expect: { recompressed: 1, skipped: { softMask: 2, matte: 1 } },
+    // The small mask fits the box and stays; the pre-blended image and its /Matte mask stay together.
+    expect: { recompressed: 1, skipped: { softMask: 1, matte: 2 } },
     async build() {
       const b = new DocBuilder();
       const m1 = addFlate(b, alphaRamp(800, 600, 1901));
@@ -462,6 +463,21 @@ export const fixtures: Fixture[] = [
         xobjects: { A: withMask, B: matte },
       });
       return built(b, 'smask');
+    },
+  },
+  {
+    name: 'soft-masks-shrunk',
+    about: 'A large photo with a large alpha mask: both shrink to the same box (the mask losslessly, as Flate)',
+    expect: { recompressed: 2, skipped: {} },
+    async build() {
+      const b = new DocBuilder();
+      const mask = addFlate(b, alphaRamp(2400, 1800, 1911), { predictor: 12 });
+      const img = await addJpeg(b, photo(2400, 1800, 1912), { quality: 93, extra: `/SMask ${mask} 0 R` });
+      b.page({
+        content: drawText('Shrunk soft mask', 40, 800, 16) + '0.2 0.4 0.9 rg 40 380 515 400 re f\n' + drawImage('A', 60, 420, 480, 360),
+        xobjects: { A: img },
+      });
+      return built(b, 'smask-shrunk');
     },
   },
   {

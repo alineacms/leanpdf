@@ -8,7 +8,7 @@ copies everything else byte for byte.
   forward pass. Peak memory is roughly one decoded image plus the cross-reference index, whatever
   the file size. A 600 MB PDF compresses in about 270 MB of RSS, most of which is the runtime and
   libvips.
-- **Small.** The browser entry (core, Blob I/O and the browser codec) is **36 KB minified, 14 KB
+- **Small.** The browser entry (core, Blob I/O and the browser codec) is **40 KB minified, 15 KB
   gzipped**, with zero runtime dependencies. It uses no bundled JPEG, PNG or zlib code; it relies on
   `createImageBitmap`, `OffscreenCanvas`, `CompressionStream` and `DecompressionStream`.
 - **Safe.** Unchanged objects are copied verbatim. Anything unusual is left alone. An image is only
@@ -206,8 +206,14 @@ The rewritten image keeps all its original dictionary entries verbatim (`/SMask`
 `/Intent`, `/Metadata`, `/OC`, `/StructParent`, …), except `/Filter`, `/Width`, `/Height`,
 `/BitsPerComponent`, `/Length` and `/ColorSpace`, which are replaced, and `/DecodeParms`, `/Decode`
 and `/DL`, which are removed. An `/ICCBased` color space is kept when the component count doesn't
-change; otherwise it becomes `/DeviceRGB` or `/DeviceGray` and the profile is dropped. Soft masks
-may legitimately have other dimensions than their image, so `/SMask` references stay as they are.
+change; otherwise it becomes `/DeviceRGB` or `/DeviceGray` and the profile is dropped.
+
+**Soft masks** (the transparency of an image, referenced by its `/SMask`) shrink to the same box
+as images, but stay gray and lossless: they are area-averaged down and written back as Flate with
+a PNG predictor, in one streaming pass that holds only a few rows in memory. This works whether
+or not the image itself could be recompressed, since a soft mask may have other dimensions than
+its image. Masks that already fit are left alone unless they were stored uncompressed, and masks
+with `/Matte` (pre-blended images) are never resized, together with their image.
 
 Everything else is skipped and counted in `report.imagesSkipped`:
 
@@ -218,8 +224,8 @@ Everything else is skipped and counted in `report.imagesSkipped`:
 | `jpx`, `jbig2`, `ccitt`, `filter` | unsupported filter or filter chain |
 | `bitsPerComponent`, `decode`, `predictor` | not 8-bit, non-identity `/Decode`, unsupported predictor |
 | `imageMask`, `colorKeyMask` | stencil masks and images with a `/Mask` color-key array |
-| `softMask` | the image is some other image's `/SMask` (it must stay gray and lossless) |
-| `matte` | its soft mask has `/Matte` (pre-blended, so the dimensions must stay equal) |
+| `softMask` | a soft mask that already fits the box, or isn't gray Flate/uncompressed data (e.g. a JPEG mask) |
+| `matte` | a pre-blended image or its `/Matte` soft mask (their dimensions must stay equal) |
 | `jpegTransform`, `jpegUnsupported`, `jpegMismatch`, `jpegInvalid` | Adobe/RGB-transform JPEGs, arithmetic, lossless or 12-bit JPEGs, header disagreements |
 | `external`, `malformed`, `tooLarge` | `/F` external streams, broken dictionaries, over 2²⁹ samples |
 | `decodeError` | the stream data couldn't be decoded completely |
@@ -264,8 +270,9 @@ Everything else is skipped and counted in `report.imagesSkipped`:
 - **Linearization** is lost. The output is a regular PDF, and the old linearization dictionary is
   dropped.
 - **Not recompressed:** CMYK, Indexed, Separation, DeviceN, Lab and calibrated images; JPEG 2000,
-  JBIG2 and CCITT; 1, 2, 4 and 16-bit images; inline images (`BI … ID … EI`); and soft masks.
-  Downscaling soft masks (gray, Flate) is a possible v2 feature.
+  JBIG2 and CCITT; 1, 2, 4 and 16-bit images; and inline images (`BI … ID … EI`). No browser
+  decodes JPEG 2000, and sharp's prebuilt binaries leave it out, so print-oriented PDFs that store
+  their photos as JPEG 2000 won't shrink much (their soft masks still do).
 - **Color:** changing an ICCBased image's component count (only the browser codec does this,
   gray→RGB) drops its ICC profile. Grayscale images grow into RGB in the browser, which usually
   only pays off together with downscaling; `minSavingsRatio` guards the rest.

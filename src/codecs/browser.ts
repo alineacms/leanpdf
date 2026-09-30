@@ -1,10 +1,5 @@
+import { fitInside } from '../core/resize.ts';
 import type { ImageCodec, ImageInput, ImageOutput, RecompressOptions } from '../core/types.ts';
-
-/** Fit (w, h) inside (maxW, maxH), keeping the aspect ratio and never enlarging. */
-export function fitInside(w: number, h: number, maxW: number, maxH: number): [number, number] {
-  const s = Math.min(1, maxW / w, maxH / h);
-  return s >= 1 ? [w, h] : [Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s))];
-}
 
 /**
  * Codec built on browser primitives: createImageBitmap for decoding and resizing, and

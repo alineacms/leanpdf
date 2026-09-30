@@ -8,6 +8,8 @@ import { SourceReader } from '../../src/core/reader.ts';
 import type { CompressOptions, ImageCodec, ImageInput, ImageOutput, RecompressOptions } from '../../src/core/types.ts';
 import { E_COMPRESSED, E_FREE, E_OFFSET } from '../../src/core/xref.ts';
 import { BASE_OBJECTS, BytesSink, BytesSource, latin1Bytes, miniPdf, type MiniObject } from './util.ts';
+import { deflateSync } from 'node:zlib';
+import { GrayDownscaler } from '../../src/core/resize.ts';
 
 const SMALL_JPEG = new Uint8Array(await sharp({ create: { width: 16, height: 12, channels: 3, background: '#c83' } }).jpeg().toBuffer());
 
@@ -185,15 +187,54 @@ describe('image rewriting', () => {
     });
   }
 
-  test('small images and images used as soft masks are left alone', async () => {
+  test('small images are left alone', async () => {
     const small = await run(miniPdf(imageDoc(), '/Root 1 0 R').text, { minImageBytes: 1e6 });
     expect(small.report.imagesSkipped).toEqual({ small: 1 });
-    const objs = imageDoc('/SMask 6 0 R ');
-    objs.push({ num: 6, body: imageDoc('', 6)[4].body.replace('/DeviceRGB', '/DeviceGray').replace(/\/Length \d+/, '/Length 10000') });
-    const m = await run(miniPdf(objs, '/Root 1 0 R').text);
-    expect(m.report.imagesSkipped).toEqual({ softMask: 1 });
-    expect(m.report.imagesRecompressed).toBe(1);
-    expect(m.text).toContain('/SMask 6 0 R');
+  });
+
+  describe('soft masks', () => {
+    const MW = 300;
+    const MH = 200;
+    const maskPixels = Uint8Array.from({ length: MW * MH }, (_, i) => ((i % MW) * 255) / (MW - 1) + (((i / MW) | 0) % 7));
+    /** Image 5 with /SMask 6: a 300x200 gray Flate mask (optionally with extra dict entries). */
+    function maskDoc(extra = '', filter: 'flate' | 'dct' = 'flate', data: Uint8Array = new Uint8Array(deflateSync(maskPixels))): string {
+      const objs = imageDoc('/SMask 6 0 R ');
+      const f = filter === 'flate' ? '/FlateDecode' : '/DCTDecode';
+      objs.push({
+        num: 6,
+        body: `<< /Type /XObject /Subtype /Image /Width ${MW} /Height ${MH} /ColorSpace /DeviceGray /BitsPerComponent 8 ${extra}/Filter ${f} /Length ${data.length} >>\nstream\n${Buffer.from(data).toString('latin1')}\nendstream`,
+      });
+      return miniPdf(objs, '/Root 1 0 R').text;
+    }
+
+    test('shrink to the same box as images, losslessly (area average, Flate + PNG predictor)', async () => {
+      const { report, out, text } = await run(maskDoc('/Interpolate true '), { maxWidth: 100, maxHeight: 100 });
+      expect(report.imagesSeen).toBe(2);
+      expect(report.imagesRecompressed).toBe(2);
+      expect(report.imagesSkipped).toEqual({});
+      expect(text).toContain('/SMask 6 0 R'); // the image still points at its mask
+      const doc = await reopen(out);
+      const hdr = (await doc.header(6))!;
+      const d = hdr.value as PdfDict;
+      expect([d.get('Width'), d.get('Height'), d.get('Interpolate')]).toEqual([100, 67, true]);
+      expect(Buffer.from(d.raw.get('DecodeParms')!).toString()).toBe('<< /Predictor 15 /Colors 1 /BitsPerComponent 8 /Columns 100 >>');
+      const expected: number[] = [];
+      const ref = new GrayDownscaler(MW, MH, 100, 67, (r) => void expected.push(...r));
+      for (let y = 0; y < MH; y++) ref.push(maskPixels.subarray(y * MW, (y + 1) * MW));
+      expect([...(await doc.streamData(hdr, 1 << 20))!]).toEqual(expected);
+    });
+
+    test('masks that already fit, JPEG masks and pre-blended (/Matte) masks stay as they are', async () => {
+      const fits = await run(maskDoc());
+      expect(fits.report.imagesSkipped).toEqual({ softMask: 1 });
+      expect(fits.text).toContain(`/Width ${MW} /Height ${MH} /ColorSpace /DeviceGray`);
+      const jpegMask = new Uint8Array(await sharp({ create: { width: MW, height: MH, channels: 3, background: '#888' } }).toColourspace('b-w').jpeg().toBuffer());
+      const dct = await run(maskDoc('', 'dct', jpegMask), { maxWidth: 100, maxHeight: 100, minImageBytes: 1 });
+      expect(dct.report.imagesSkipped).toEqual({ softMask: 1 });
+      const matte = await run(maskDoc('/Matte [0] '), { maxWidth: 100, maxHeight: 100 });
+      expect(matte.report.imagesSkipped).toEqual({ matte: 2 });
+      expect(matte.report.imagesRecompressed).toBe(0);
+    });
   });
 
   test('concurrency does not change the output', async () => {
