@@ -1,6 +1,6 @@
 node_modules/
 dist/
-demo/dist/
+site/dist/
 test/.corpus/
 test/.out/
 *.tmp
@@ -8,3 +8,4 @@ test/.out/
 bench/.corpus/
 bench/.out/
 bench/node_modules/
+site/screenshots/

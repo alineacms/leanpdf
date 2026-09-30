@@ -5,5 +5,5 @@
     "rootDir": "..",
     "types": ["bun", "node"]
   },
-  "include": ["../test", "../scripts", "../demo", "../src"]
+  "include": ["../test", "../scripts", "../site", "../src"]
 }

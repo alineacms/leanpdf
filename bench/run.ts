@@ -150,6 +150,7 @@ for (const file of files) {
     md += `| ${r.tool} | ${mb(r.outBytes)} | ${saved} | ${r.seconds.toFixed(1)} s | ${r.cpuSeconds.toFixed(1)} s | ${r.peakMb.toFixed(0)} MB | ${r.valid} | ${q} |\n`;
   }
 }
-writeFileSync(`${outDir}results.json`, JSON.stringify(rows, null, 2));
+// JSON has no Infinity (it would become null, like "not measured"): pixel-identical is "Infinity".
+writeFileSync(`${outDir}results.json`, `${JSON.stringify(rows, (_, v) => (v === Infinity ? 'Infinity' : v), 2)}\n`);
 writeFileSync(`${outDir}results.md`, md);
 console.log(md);

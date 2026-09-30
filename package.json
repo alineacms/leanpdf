@@ -51,11 +51,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json",
     "test": "bun test",
     "size": "bun scripts/size.ts",
-    "demo": "bun demo/serve.ts",
+    "demo": "bun site/serve.ts",
     "cli": "bun src/cli.ts",
     "test:large": "bun test/large/memory.ts",
     "prepublishOnly": "bun run typecheck && bun run size && bun run build",
-    "demo:build": "bun demo/build.ts"
+    "site:dev": "bun site/serve.ts",
+    "site:build": "bun site/build.ts",
+    "site:preview": "bun site/serve.ts --dist"
   },
   "peerDependencies": {
     "sharp": ">=0.34.0"
