@@ -5,7 +5,7 @@
  */
 
 /** Code-block style flags (COD/COC SPcod). Predictable termination (16) needs nothing to decode. */
-export const BYPASS = 1;
+const BYPASS = 1;
 const RESET = 2;
 const TERMALL = 4;
 const VCAUSAL = 8;
@@ -74,7 +74,7 @@ const { qe: QE2, nm: NM, nl: NL, zc: ZC, sc: SC } = /* @__PURE__ */ tables();
  * SP+MR pair and each cleanup pass.
  */
 export function segment(k: number, style: number): number {
-  return style & TERMALL ? k : style & BYPASS && k >= 10 ? 1 + (((k - 10) * 2) / 3) | 0 : 0;
+  return style & TERMALL ? k : style & BYPASS && k >= 10 ? 1 + ((((k - 10) * 2) / 3) | 0) : 0;
 }
 
 /** Decodes code-blocks one at a time, reusing its buffers. */
@@ -175,25 +175,18 @@ export class T1 {
 
   /** DECODE (C.3.2) in context `i`. C is kept as an int32 holding the unsigned register. */
   private mq(i: number): number {
-    const s = this.cx[i], qe = QE2[s], a = this.a - qe;
-    // The common case, small enough to inline: an MPS that needs no renormalization.
-    if (a & 0x8000 && this.c >>> 16 >= qe) {
-      this.a = a;
-      this.c = (this.c - (qe << 16)) | 0;
-      return s & 1;
-    }
-    return this.mqSlow(i, s, qe, a);
-  }
-
-  private mqSlow(i: number, s: number, qe: number, a: number): number {
-    const cx = this.cx;
-    let d = s & 1;
+    const cx = this.cx, s = cx[i], qe = QE2[s];
+    let a = this.a - qe, d = s & 1;
     if (this.c >>> 16 < qe) {
       if (a < qe) cx[i] = NM[s];
       else (d ^= 1), (cx[i] = NL[s]);
       a = qe;
     } else {
       this.c = (this.c - (qe << 16)) | 0;
+      if (a & 0x8000) {
+        this.a = a;
+        return d;
+      }
       if (a < qe) (d ^= 1), (cx[i] = NL[s]);
       else cx[i] = NM[s];
     }
@@ -242,6 +235,8 @@ export class T1 {
     for (let y = 0; y < h; y += 4) {
       const rows = h - y < 4 ? h - y : 4;
       for (let x = 0, i0 = (y + 1) * sw + 1, j0 = y * w; x < w; x++) {
+        // Nothing to do in a column where no sample has a significant neighbour.
+        if (rows === 4 && !((fl[i0 + x] | fl[i0 + x + sw] | fl[i0 + x + 2 * sw] | fl[i0 + x + 3 * sw]) & NB)) continue;
         for (let r = 0, i = i0 + x, j = j0 + x; r < rows; r++, i += sw, j += w) {
           const f = fl[i] & (r < 3 ? 0xffff : vm);
           if (f & SIG || !(f & NB)) continue;
@@ -261,6 +256,7 @@ export class T1 {
     for (let y = 0; y < h; y += 4) {
       const rows = h - y < 4 ? h - y : 4;
       for (let x = 0, i0 = (y + 1) * sw + 1, j0 = y * w; x < w; x++) {
+        if (rows === 4 && !((fl[i0 + x] | fl[i0 + x + sw] | fl[i0 + x + 2 * sw] | fl[i0 + x + 3 * sw]) & SIG)) continue;
         for (let r = 0, i = i0 + x, j = j0 + x; r < rows; r++, i += sw, j += w) {
           const f = fl[i] & (r < 3 ? 0xffff : vm);
           if ((f & (SIG | VISIT)) !== SIG) continue;

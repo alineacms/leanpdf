@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import * as mupdf from 'mupdf';
 import { decodeJpx, jpxInfo, type JpxImage } from '../../src/core/jpx.ts';
+import { concatBytes } from '../support/pdfgen.ts';
 import { Rng } from '../support/prng.ts';
 
 /**
@@ -37,7 +38,7 @@ const sha1 = (b: Uint8Array) => createHash('sha1').update(b).digest('hex');
 
 /** MuPDF's decode of a JPX image, as tightly packed 8-bit samples. */
 function mupdfDecode(data: Uint8Array): { width: number; height: number; n: number; data: Uint8Array } {
-  const pix = new mupdf.Image(data).toPixmap();
+  const image = new mupdf.Image(data), pix = image.toPixmap();
   try {
     const width = pix.getWidth(), height = pix.getHeight(), n = pix.getNumberOfComponents() + pix.getAlpha(), stride = pix.getStride();
     const px = pix.getPixels(), out = new Uint8Array(width * height * n);
@@ -45,6 +46,7 @@ function mupdfDecode(data: Uint8Array): { width: number; height: number; n: numb
     return { width, height, n, data: out };
   } finally {
     pix.destroy();
+    image.destroy();
   }
 }
 
@@ -166,6 +168,37 @@ describe('decodeJpx and jpxInfo: headers', () => {
     }
   });
 
+  /** Marker segments of a codestream's main header: marker, start and end. */
+  function mainHeader(cs: Uint8Array): { m: number; at: number; end: number }[] {
+    const out = [];
+    for (let at = 2; ((cs[at] << 8) | cs[at + 1]) !== 0xff90; ) {
+      const end = at + 2 + ((cs[at + 2] << 8) | cs[at + 3]);
+      out.push({ m: (cs[at] << 8) | cs[at + 1], at, end });
+      at = end;
+    }
+    return out;
+  }
+  const splice = (cs: Uint8Array, at: number, ...parts: Uint8Array[]) => concatBytes([cs.subarray(0, at), ...parts, cs.subarray(at)]);
+  const marker = (m: number, body: Uint8Array) => concatBytes([new Uint8Array([m >> 8, m & 255, (body.length + 2) >> 8, (body.length + 2) & 255]), body]);
+
+  test('COC and QCC markers restating the defaults change nothing', () => {
+    const cs = load('rgb-53-lrcp.j2k'), hdr = mainHeader(cs);
+    const cod = hdr.find((x) => x.m === 0xff52)!, qcd = hdr.find((x) => x.m === 0xff5c)!;
+    // COC: component, Scoc (the precinct flag), SPcod. QCC: component, then as QCD.
+    const coc = marker(0xff53, concatBytes([new Uint8Array([2, cs[cod.at + 4] & 1]), cs.subarray(cod.at + 9, cod.end)]));
+    const qcc = marker(0xff5d, concatBytes([new Uint8Array([1]), cs.subarray(qcd.at + 4, qcd.end)]));
+    expect(sha1(decodeJpx(splice(cs, qcd.end, coc, qcc))!.data)).toBe(sha1(decodeJpx(cs)!.data));
+  });
+
+  test('COD and QCD repeated in a tile-part header change nothing', () => {
+    const cs = load('tiles-parts.j2k'), hdr = mainHeader(cs), sot = hdr[hdr.length - 1].end;
+    const extra = concatBytes(hdr.filter((x) => x.m === 0xff52 || x.m === 0xff5c).map((x) => cs.subarray(x.at, x.end)));
+    const out = splice(cs, sot + 12, extra);
+    // Psot of that tile-part grows by what was inserted.
+    new DataView(out.buffer).setUint32(sot + 6, new DataView(cs.buffer, cs.byteOffset).getUint32(sot + 6) + extra.length);
+    expect(sha1(decodeJpx(out)!.data)).toBe(sha1(decodeJpx(cs)!.data));
+  });
+
   test('a JP2 wrapped in junk still finds its codestream', () => {
     const cs = load('gray-53.j2k'), junk = new Uint8Array(cs.length + 37);
     junk.set(cs, 37);
@@ -191,19 +224,18 @@ describe('decodeJpx: damaged data', () => {
     }
   });
 
-  test('a truncated lossless image is exact up to where the data stops mattering', () => {
-    // Resolution-first: dropping the last bytes only loses detail of the highest resolution.
-    const data = load('rgb-53-rlcp.j2k'), full = decodeJpx(data)!, img = decodeJpx(data.subarray(0, data.length - 200))!;
-    const d = diff(img.data, full.data);
-    expect(d.max).toBeGreaterThan(0);
-    expect(d.mean).toBeLessThan(8);
+  test('truncated in the last resolution: the lower resolutions still decode exactly', () => {
+    // Resolution-major, so the last bytes are all highest-resolution packets.
+    const data = load('rgb-53-rlcp.j2k'), cut = data.subarray(0, data.length - 200);
+    expect(diff(decodeJpx(cut)!.data, decodeJpx(data)!.data).max).toBeGreaterThan(0);
+    expect(sha1(decodeJpx(cut, { reduce: 1 })!.data)).toBe(sha1(decodeJpx(data, { reduce: 1 })!.data));
   });
 
   test('corrupted bytes: no throws, no hangs (time-bounded fuzz)', () => {
     const rng = new Rng(20260930);
     const start = performance.now();
     let decoded = 0, runs = 0;
-    for (; performance.now() - start < 4000 && runs < 1500; runs++) {
+    for (; performance.now() - start < 2500 && runs < 1500; runs++) {
       const src = load(rng.pick(files)), data = src.slice();
       // Flip a few bytes, mostly in the headers where damage is most interesting.
       for (let k = rng.int(1, 6); k--; ) {

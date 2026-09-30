@@ -41,7 +41,8 @@ export interface JpxInfo {
 
 // Limits against hostile input: they are far beyond anything real images use.
 const MAX_COMPONENTS = 256;
-const MAX_TILE_ITEMS = 1 << 22; // precincts and code-blocks per tile
+const MAX_BLOCKS = 1 << 22; // code-blocks per tile
+const MAX_PRECINCTS = 1 << 20; // per tile
 const MAX_PACKETS = 1 << 24; // packet visits per tile, skipped ones included
 
 // ---------------------------------------------------------------------------------------------
@@ -143,7 +144,8 @@ function cat(parts: Uint8Array[]): Uint8Array {
 
 function spcod(d: Uint8Array, q: number, precincts: number): Coc {
   const levels = d[q], xcb = (d[q + 1] & 15) + 2, ycb = (d[q + 2] & 15) + 2;
-  if (levels > 32 || xcb > 10 || ycb > 10 || xcb + ycb > 12) bad();
+  // Beyond Part 1: HTJ2K's block coder (style bit 6), Part 2 wavelet kernels (transform > 1).
+  if (levels > 32 || xcb > 10 || ycb > 10 || xcb + ycb > 12 || d[q + 3] & 0x40 || d[q + 4] > 1) bad();
   return { levels, xcb, ycb, style: d[q + 3], rev: d[q + 4] === 1, pp: precincts & 1 ? d.slice(q + 5, q + 6 + levels) : null };
 }
 
@@ -262,12 +264,15 @@ function readJp2(d: Uint8Array): Jp2 {
       if (type === 0x6a703268) walk(q, e); // jp2h
       else if (type === 0x636f6c72) j.cs ??= d[q] === 1 ? u32(d, q + 3) : -1;
       else if (type === 0x70636c72 && q + 3 <= e) {
-        const n = u16(d, q), cols = d[q + 2], bits: number[] = [], v: number[][] = [];
-        for (let c = 0; c < cols; c++) bits.push(d[q + 3 + c]), v.push([]);
+        const cols = d[q + 2], bits: number[] = [], v: number[][] = [];
+        let size = 0;
+        for (let c = 0; c < cols; c++) bits.push(d[q + 3 + c]), v.push([]), (size += ((d[q + 3 + c] & 127) >> 3) + 1);
+        // At most 1024 entries, and no more than the box holds.
+        const n = Math.min(u16(d, q), 1024, Math.floor((e - q - 3 - cols) / size) || 0);
         for (let i = 0, at = q + 3 + cols; i < n; i++) {
           for (let c = 0; c < cols; c++) {
             let x = 0;
-            for (let b = ((bits[c] & 127) >> 3) + 1; b--; ) x = x * 256 + (d[at++] ?? 0);
+            for (let b = ((bits[c] & 127) >> 3) + 1; b--; ) x = x * 256 + d[at++];
             v[c].push(x);
           }
         }
@@ -358,11 +363,14 @@ class Bits {
     this.d = d;
     this.e = d.length;
   }
-  /** Zeros past the end, where `p` keeps counting: `p > e` means the data ran out. */
+  /**
+   * Ones past the end (they end tag tree and length loops soonest), where `p` keeps counting:
+   * `p > e` means the data ran out.
+   */
   bit(): number {
     if (!this.n) {
       this.n = this.b === 0xff ? 7 : 8;
-      this.b = this.p < this.e ? this.d[this.p] : 0;
+      this.b = this.p < this.e ? this.d[this.p] : 0x7f;
       this.p++;
     }
     return (this.b >> --this.n) & 1;
@@ -525,22 +533,26 @@ function progress(comps: TileComp[], tx0: number, ty0: number, poc: number[], em
     return true;
   }
   if (order > 4) return false;
-  const list: number[][] = [];
+  // Sort keys: RPCL by r, y, x, c; PCRL by y, x, c, r; CPRL by c, y, x, r. Coordinates are below
+  // 2^33, components below 2^8 and resolutions below 2^6, so two exact doubles hold them.
+  let n = 0;
+  for (let c = cs; c < ce; c++) for (let r = rs; r < re && r < comps[c].res.length; r++) n += comps[c].res[r].npx * comps[c].res[r].npy;
+  const k1 = new Float64Array(n), k2 = new Float64Array(n), id = new Int32Array(3 * n);
+  n = 0;
   for (let c = cs; c < ce; c++) {
     const comp = comps[c];
     for (let r = rs; r < re && r < comp.res.length; r++) {
       const res = comp.res[r], sx = comp.dx * 2 ** (res.ppx + comp.levels - r), sy = comp.dy * 2 ** (res.ppy + comp.levels - r);
-      for (let k = 0; k < res.npx * res.npy; k++) {
+      for (let k = 0; k < res.npx * res.npy; k++, n++) {
         const x = Math.max(tx0, (res.px0 + (k % res.npx)) * sx), y = Math.max(ty0, (res.py0 + ((k / res.npx) | 0)) * sy);
-        list.push(order === 2 ? [r, y, x, c, k] : order === 3 ? [y, x, c, r, k] : [c, y, x, r, k]);
+        k1[n] = order === 2 ? r * 2 ** 33 + y : order === 3 ? y : c * 2 ** 33 + y;
+        k2[n] = order === 2 ? x * 256 + c : order === 3 ? (x * 256 + c) * 64 + r : x * 64 + r;
+        (id[3 * n] = c), (id[3 * n + 1] = r), (id[3 * n + 2] = k);
       }
     }
   }
-  list.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2] || a[3] - b[3]);
-  for (const e of list) {
-    const c = order === 2 ? e[3] : order === 3 ? e[2] : e[0], r = order === 2 ? e[0] : e[3];
-    for (let l = 0; l < le; l++) if (!emit(c, r, e[4], l)) return false;
-  }
+  const ord = new Uint32Array(n).map((_, i) => i).sort((a, b) => k1[a] - k1[b] || k2[a] - k2[b]);
+  for (const i of ord) for (let l = 0; l < le; l++) if (!emit(id[3 * i], id[3 * i + 1], id[3 * i + 2], l)) return false;
   return true;
 }
 
@@ -572,7 +584,7 @@ function decodeTile(img: Img, t: number, parts: Part[]): void {
   const tp = params();
   for (const p of parts) segments(d, p.h0, p.h1, tp, nc, null);
   const cod = tp.cod ?? main.cod ?? bad();
-  let items = 0;
+  let blocks = 0, precincts = 0;
   const comps = siz.comps.map((sc, c): TileComp => {
     const cc = tp.coc[c] ?? tp.cod ?? main.coc[c] ?? cod, qc = tp.qcc[c] ?? tp.qcd ?? main.qcc[c] ?? main.qcd ?? bad();
     const roi = Math.min(tp.rgn[c] ?? main.rgn[c] ?? 0, 30), L = cc.levels, red = Math.min(reduce, L);
@@ -585,14 +597,14 @@ function decodeTile(img: Img, t: number, parts: Part[]): void {
       const px0 = Math.floor(x0 / 2 ** ppx), py0 = Math.floor(y0 / 2 ** ppy);
       const npx = x1 > x0 ? Math.ceil(x1 / 2 ** ppx) - px0 : 0, npy = y1 > y0 ? Math.ceil(y1 / 2 ** ppy) - py0 : 0;
       const xcb = Math.min(cc.xcb, ppx - lift), ycb = Math.min(cc.ycb, ppy - lift), lo = res[r - 1];
-      if ((items += npx * npy) > MAX_TILE_ITEMS) bad();
+      if ((precincts += npx * npy) > MAX_PRECINCTS) bad();
       const bands = (r ? [1, 2, 3] : [0]).map((b): Band => {
         const xo = b & 1, yo = b >> 1, sb = 2 ** (r ? L - r + 1 : L);
         const bx0 = Math.ceil((tcx0 - (xo * sb) / 2) / sb), bx1 = Math.ceil((tcx1 - (xo * sb) / 2) / sb);
         const by0 = Math.ceil((tcy0 - (yo * sb) / 2) / sb), by1 = Math.ceil((tcy1 - (yo * sb) / 2) / sb);
         const gx = Math.floor(bx0 / 2 ** xcb), gy = Math.floor(by0 / 2 ** ycb);
         const nbx = bx1 > bx0 ? Math.ceil(bx1 / 2 ** xcb) - gx : 0, nby = by1 > by0 ? Math.ceil(by1 / 2 ** ycb) - gy : 0;
-        if ((items += nbx * nby) > MAX_TILE_ITEMS) bad();
+        if ((blocks += nbx * nby) > MAX_BLOCKS) bad();
         // Quantization of subband b of resolution r; the derived style scales the LL's step (E.1.1.1).
         const i = r ? 3 * r - 3 + b : 0, q = qc.kind === 1 ? qc.v[0] - ((r ? r - 1 : 0) << 11) : (qc.v[i] ?? qc.v[qc.v.length - 1] ?? 0);
         const eps = q >> 11, gain = b === 3 ? 2 : b ? 1 : 0;
@@ -689,9 +701,8 @@ function decodeTile(img: Img, t: number, parts: Part[]): void {
   // Tier 1, dequantization and the inverse wavelet transform, component by component.
   const bufs = comps.map((comp, c) => {
     const top = comp.res[comp.R], W = top.x1 - top.x0, n = W * (top.y1 - top.y0);
-    if (!(img.bufs[c]?.length >= n)) img.bufs[c] = new Float32Array(n);
-    const buf = img.bufs[c].subarray(0, n);
-    buf.fill(0);
+    // Reused from the previous tile (zeroed), or new (zero already).
+    const buf = img.bufs[c]?.length >= n ? img.bufs[c].subarray(0, n).fill(0) : (img.bufs[c] = new Float32Array(n));
     for (let r = 0; r <= comp.R; r++) {
       for (const band of comp.res[r].bands) {
         const { blocks, xcb, ycb } = band;
@@ -712,12 +723,12 @@ function decodeTile(img: Img, t: number, parts: Part[]): void {
     return buf;
   });
 
-  // Multiple component transform (Annex G) on the first three components.
-  const [a0, a1, a2] = bufs;
-  if (cod.mct && nc >= 3 && a0.length === a1.length && a0.length === a2.length) {
+  // Multiple component transform (Annex G) on the first three components, which must match.
+  const [a0, a1, a2] = bufs, same = (c: TileComp) => c.dx === comps[0].dx && c.dy === comps[0].dy && c.red === comps[0].red;
+  if (cod.mct === 1 && nc >= 3 && same(comps[1]) && same(comps[2])) {
     if (comps[0].rev) {
       for (let i = 0; i < a0.length; i++) {
-        const y = a0[i], u = a1[i], v = a2[i], g = y - Math.floor((u + v) / 4);
+        const y = a0[i], u = a1[i], v = a2[i], g = y - ((u + v) >> 2);
         (a0[i] = v + g), (a1[i] = g), (a2[i] = u + g);
       }
     } else {
@@ -735,14 +746,17 @@ function decodeTile(img: Img, t: number, parts: Part[]): void {
  * quantization step, 0 for reversible blocks, whose values just lose their fractional bit.
  */
 function place(buf: Float32Array, o: number, W: number, v: Int32Array, w: number, h: number, step: number, roi: number): void {
-  // Max-shift ROI: coefficients above the background range were scaled up (Annex H).
-  const thr = 2 << roi;
-  for (let y = 0, j = 0; y < h; y++, o += W - w) {
-    for (let e = j + w; j < e; j++, o++) {
-      let q = v[j];
-      if (roi && (q < 0 ? -q : q) >= thr) q = q < 0 ? -(-q >> roi) : q >> roi;
-      buf[o] = step ? q * step : (q + (q >>> 31)) >> 1;
+  if (roi) {
+    // Max-shift ROI: coefficients above the background range were scaled up (Annex H).
+    const thr = 2 ** (roi + 1);
+    for (let j = 0; j < w * h; j++) {
+      const q = v[j];
+      if ((q < 0 ? -q : q) >= thr) v[j] = q < 0 ? -(-q >> roi) : q >> roi;
     }
+  }
+  for (let y = 0, j = 0; y < h; y++, o += W - w) {
+    if (step) for (let e = j + w; j < e; ) buf[o++] = v[j++] * step;
+    else for (let e = j + w; j < e; j++) buf[o++] = (v[j] + (v[j] >>> 31)) >> 1;
   }
 }
 
@@ -751,31 +765,33 @@ function writeTile(img: Img, comps: TileComp[], bufs: Float32Array[], tx0: numbe
   const { out, outc, nch, lay } = img, f = 2 ** img.reduce;
   const X0 = Math.ceil(tx0 / f), X1 = Math.ceil(tx1 / f), Y0 = Math.ceil(ty0 / f), Y1 = Math.ceil(ty1 / f), tw = X1 - X0;
   if (tw < 1 || Y1 <= Y0) return;
-  const map = new Int32Array(tw);
-  for (let ch = 0; ch < nch; ch++) {
-    const { c, pal } = lay.chans[ch], comp = comps[c], a = bufs[c], top = comp.res[comp.R];
-    const W = top.x1 - top.x0, H = top.y1 - top.y0;
-    if (!W || !H) continue;
-    // Output pixel -> sample of the component as decoded (subsampled, and maybe less reduced).
-    const sx = 2 ** (img.reduce - comp.red) / comp.dx, sy = 2 ** (img.reduce - comp.red) / comp.dy;
-    for (let x = 0; x < tw; x++) map[x] = Math.min(Math.max(Math.floor((X0 + x) * sx) - top.x0, 0), W - 1);
-    const shift = 2 ** (comp.prec - 1), scale = 255 / (2 ** comp.prec - 1), last = pal ? pal.length - 1 : 0;
-    for (let y = Y0; y < Y1; y++) {
-      const row = Math.min(Math.max(Math.floor(y * sy) - top.y0, 0), H - 1) * W;
-      let o = ((y - img.oy) * img.w + X0 - img.ox) * nch + ch;
+  // Output pixel -> sample of each channel's component as decoded (subsampled, maybe less reduced).
+  const chans = lay.chans.map(({ c, pal }) => {
+    const comp = comps[c], top = comp.res[comp.R], W = top.x1 - top.x0, H = top.y1 - top.y0, s = 2 ** (img.reduce - comp.red);
+    const map = new Int32Array(tw);
+    for (let x = 0; x < tw; x++) map[x] = Math.min(Math.max(Math.floor(((X0 + x) * s) / comp.dx) - top.x0, 0), W - 1);
+    return { a: bufs[c], pal, map, W, H, y0: top.y0, sy: s / comp.dy, shift: 2 ** (comp.prec - 1), scale: 255 / (2 ** comp.prec - 1) };
+  });
+  // Row by row, all channels, so each output row is written while it is in cache.
+  for (let y = Y0; y < Y1; y++) {
+    const o0 = ((y - img.oy) * img.w + X0 - img.ox) * nch;
+    for (let ch = 0; ch < nch; ch++) {
+      const { a, pal, map, W, H, y0, sy, shift, scale } = chans[ch];
+      if (!W || !H) continue;
+      const row = Math.min(Math.max(Math.floor(y * sy) - y0, 0), H - 1) * W;
       if (pal) {
-        for (let x = 0; x < tw; x++, o += nch) {
+        for (let x = 0, o = o0 + ch; x < tw; x++, o += nch) {
           const v = Math.round(a[row + map[x]] + shift);
-          out[o] = pal[v < 0 ? 0 : v > last ? last : v];
+          out[o] = pal[v < 0 ? 0 : v >= pal.length ? pal.length - 1 : v];
         }
-      } else for (let x = 0; x < tw; x++, o += nch) outc[o] = (a[row + map[x]] + shift) * scale;
+      } else if (scale === 1) for (let x = 0, o = o0 + ch; x < tw; x++, o += nch) outc[o] = a[row + map[x]] + shift;
+      // Other precisions: round to the component's own, then scale.
+      else for (let x = 0, o = o0 + ch; x < tw; x++, o += nch) outc[o] = Math.round(a[row + map[x]] + shift) * scale;
     }
-  }
-  if (lay.ycc) {
-    // sYCC to RGB; YCCK to CMY (inverted RGB) and K.
-    const inv = lay.ycc === 2 ? 255 : 0, sign = inv ? -1 : 1;
-    for (let y = Y0; y < Y1; y++) {
-      for (let o = ((y - img.oy) * img.w + X0 - img.ox) * nch, e = o + tw * nch; o < e; o += nch) {
+    if (lay.ycc) {
+      // sYCC to RGB; YCCK to CMY (inverted RGB) and K.
+      const inv = lay.ycc === 2 ? 255 : 0, sign = inv ? -1 : 1;
+      for (let o = o0, e = o + tw * nch; o < e; o += nch) {
         const Y = out[o], cb = out[o + 1] - 128, cr = out[o + 2] - 128;
         outc[o] = inv + sign * (Y + 1.402 * cr);
         outc[o + 1] = inv + sign * (Y - 0.344136 * cb - 0.714136 * cr);

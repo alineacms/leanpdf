@@ -496,6 +496,12 @@ def main():
     cro = comp(photo(44, 33, seed=6)[..., 0], dx=2, dy=1)
     encode(P('sub-422-odd.j2k'), [Yo, cbo, cro], x0=1, y0=3, width=66, height=44, mct=0, numres=3, tile=(20, 20))
     add('sub-422-odd.j2k', to8([Yo, cbo, cro], 1, 3, 67, 47))
+    # Mixed precisions (QCC markers) and subsampling, image offset, precincts, position progressions.
+    m = [comp(y[:44, :64, 0], 12), comp(y[:22, :32, 1], 8, dx=2, dy=2), comp(y[:22, :64, 2], 4, dy=2)]
+    encode(P('mixed-cprl-53.j2k'), m, mct=0, prog='CPRL', prc=[(16, 16), (16, 16), (8, 8)], numres=3, x0=3, y0=1, width=64, height=44, rates=[20, 0])
+    add('mixed-cprl-53.j2k', to8(m, 3, 1, 67, 45), reduces=(1,))
+    encode(P('mixed-pcrl-97.j2k'), m, mct=0, prog='PCRL', prc=[(16, 16), (8, 8), (8, 8)], numres=3, x0=3, y0=1, width=64, height=44, lossy=True, rates=[8, 3])
+    add('mixed-pcrl-97.j2k', None, lossy=True, reduces=(1,))
     encode(P('sycc-420-97.jp2'), [Y, cb, cr], jp2=True, cs='sycc', mct=0, lossy=True, rates=[6])
     add('sycc-420-97.jp2', None, lossy=True, ycc=True, extra=dict(colorSpace='rgb'))
 
