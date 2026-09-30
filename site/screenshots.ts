@@ -1,7 +1,8 @@
 /**
  * Screenshots of the built site for review: builds into a temporary directory, serves it with
  * the _headers rules, and captures pages at desktop and phone width (light and dark) into
- * site/screenshots/. The app page is captured after compressing the browser test fixture.
+ * site/screenshots/. The app page is captured after compressing the browser test fixture, and
+ * each other tool after running it on the test documents.
  *
  *   bun site/screenshots.ts            (needs Chromium, see test/browser/harness.ts)
  */
@@ -9,7 +10,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright-core';
-import { buildFixturePdf } from '../test/browser/fixture.ts';
+import { buildDocFixture, buildFixturePdf } from '../test/browser/fixture.ts';
 import { launchChromium } from '../test/browser/harness.ts';
 import { buildSite, writeSite } from './build.ts';
 import { startSiteServer } from './serve.ts';
@@ -28,6 +29,8 @@ const dir = await mkdtemp(join(tmpdir(), 'leanpdf-site-'));
 await writeSite(await buildSite(), join(dir, 'dist'));
 const fixture = join(dir, 'fixture.pdf');
 await writeFile(fixture, (await buildFixturePdf()).bytes);
+const doc = join(dir, 'doc.pdf');
+await writeFile(doc, buildDocFixture());
 const server = await startSiteServer({ dist: join(dir, 'dist'), port: 0 });
 await mkdir(OUT, { recursive: true });
 
@@ -51,7 +54,45 @@ async function compressFixture(page: Page): Promise<void> {
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 
+/** Choose `file` in a tool and wait for the app to have read it. */
+async function choose(page: Page, tool: string, file: string | string[], ready: string): Promise<void> {
+  await page.waitForSelector('#app[data-state="ready"]');
+  await page.setInputFiles(`#${tool}-file`, file);
+  await page.waitForFunction((sel) => !!document.querySelector(sel), ready, { timeout: 30_000 });
+}
+
+const TOOLS: [string, (p: Page) => Promise<void>][] = [
+  ['inspect', (p) => choose(p, 'inspect', doc, '#inspect-document:not([hidden])')],
+  ['text', async (p) => {
+    await choose(p, 'text', doc, '#text-start:not([disabled])');
+    await p.click('#text-start');
+    await p.waitForSelector('#text-report', { state: 'visible' });
+    await p.fill('#text-find', 'invoices');
+  }],
+  ['edit', async (p) => {
+    await choose(p, 'edit', doc, '#edit-start:not([disabled])');
+    await p.fill('#edit-keep', '3, 1');
+    await p.selectOption('#edit-rotate', '90');
+    await p.check('#edit-stripMetadata');
+    await p.click('#edit-start');
+    await p.waitForSelector('#edit-report', { state: 'visible' });
+  }],
+  ['merge', async (p) => {
+    await choose(p, 'merge', [doc, fixture], '#merge-start:not([disabled])');
+    await p.fill('#merge-list li:nth-child(1) input', '2');
+    await p.click('#merge-start');
+    await p.waitForSelector('#merge-report', { state: 'visible', timeout: 60_000 });
+  }],
+];
+
 try {
+  for (const [tool, prepare] of TOOLS) {
+    await shot(`app-${tool}-desktop`, `/app/#${tool}`, DESKTOP, false, async (p) => {
+      await prepare(p);
+      await p.mouse.move(0, 0);
+      await p.evaluate(() => window.scrollTo(0, 0));
+    });
+  }
   for (const dark of [false, true]) {
     await shot('home-desktop', '/', DESKTOP, dark);
     await shot('app-desktop', '/app/', DESKTOP, dark, compressFixture);

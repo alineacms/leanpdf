@@ -22,8 +22,8 @@ export function appPage(assets: Assets): string {
 </div>`;
   return page({
     path: '/app/',
-    title: 'Compress a PDF in your browser · leanpdf',
-    description: 'Shrink a PDF by recompressing its images, entirely in your browser. Streams large files to disk without uploading them anywhere.',
+    title: 'PDF tools in your browser · leanpdf',
+    description: 'Compress, inspect, extract text from, edit, merge and unlock PDFs entirely in your browser. Large files stream to disk; nothing is uploaded.',
     body,
     assets,
     script: assets.appJs,

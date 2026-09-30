@@ -4,6 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import { firstRepeat, parseRanges } from '../../site/src/app/ranges.ts';
 import { barChart, benchTable, corpusDescriptions, loadBench, type BenchRow } from '../../site/src/bench.ts';
 import { headersFor, HEADERS_FILE, parseHeaders } from '../../site/src/headers.ts';
 import { highlight } from '../../site/src/highlight.ts';
@@ -172,5 +173,25 @@ describe('benchmarks', () => {
     if (!data) return; // no bench/results.json yet: the page shows a notice instead
     expect(data.files.length).toBeGreaterThan(0);
     expect(corpusDescriptions().size).toBeGreaterThan(0);
+  });
+});
+
+describe('app page ranges', () => {
+  test('1-based ranges in the order written, open ends, backwards ranges', () => {
+    expect(parseRanges('', 5)).toBeNull();
+    expect(parseRanges(' , ', 5)).toBeNull();
+    expect(parseRanges('1-3, 5', 5)).toEqual([0, 1, 2, 4]);
+    expect(parseRanges('4-, -2', 5)).toEqual([3, 4, 0, 1]);
+    expect(parseRanges('3-1', 5)).toEqual([2, 1, 0]);
+    expect(parseRanges('2 to 3', 5)).toEqual([1, 2]);
+  });
+
+  test('bad input gets a message', () => {
+    expect(parseRanges('6', 5)).toBe('There is no page 6: pages are 1 to 5.');
+    expect(parseRanges('0', 1)).toBe('This PDF has one page; there is no page 0.');
+    expect(parseRanges('a', 5)).toBe('“a” is not a page number or a range like 2-5.');
+    expect(parseRanges('-', 5)).toBe('“-” is not a page number or a range like 2-5.');
+    expect(firstRepeat([0, 2, 0])).toBe(1);
+    expect(firstRepeat([0, 1])).toBeUndefined();
   });
 });

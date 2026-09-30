@@ -6,7 +6,7 @@ export function notFoundPage(assets: Assets): string {
   <h1>Page not found</h1>
   <p class="lead">There is nothing at this address. Maybe one of these?</p>
   <div class="cta">
-    <a class="button primary" href="/app/">Compress a PDF</a>
+    <a class="button primary" href="/app/">Open the app</a>
     <a class="button" href="/docs/">Docs</a>
     <a class="button" href="/">Home</a>
   </div>

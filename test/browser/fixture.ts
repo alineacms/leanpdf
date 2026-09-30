@@ -6,6 +6,7 @@
 import { deflateSync } from 'node:zlib';
 import sharp from 'sharp';
 import { synthesize, type SynthSpec } from '../contract/contract.ts';
+import { bytes, DocBuilder, drawText } from '../support/pdfgen.ts';
 
 export interface FixtureImage {
   /** Object number of the image XObject. */
@@ -152,4 +153,35 @@ if (import.meta.main) {
   const out = process.argv[2] ?? 'fixture.pdf';
   await Bun.write(out, (await buildFixturePdf()).bytes);
   console.log(`wrote ${out}`);
+}
+
+/**
+ * A three-page text document for the Inspect, Text, Pages & cleanup and Merge tools: metadata,
+ * two bookmarks, a web link, an attached text file, a filled-in text field and JavaScript. Page 2
+ * is rotated 90°.
+ */
+export function buildDocFixture(): Uint8Array {
+  const b = new DocBuilder();
+  const link = b.alloc();
+  const field = b.alloc();
+  const p1 = b.page({ content: drawText('Alpha page one about invoices', 72, 760), extra: ` /Annots [${link} 0 R]` });
+  b.page({ content: drawText('Beta page two mentions invoices again', 72, 760), extra: ' /Rotate 90' });
+  const p3 = b.page({ content: drawText('Gamma page three', 72, 760), extra: ` /Annots [${field} 0 R]` });
+  b.setObj(link, '<< /Type /Annot /Subtype /Link /Rect [72 700 300 720] /Border [0 0 0] /A << /S /URI /URI (https://example.com/terms) >> >>');
+  b.setObj(field, `<< /Type /Annot /Subtype /Widget /FT /Tx /T (customer) /V (Ada Lovelace) /Rect [72 600 300 620] /P ${p3} 0 R >>`);
+  const outlines = b.alloc();
+  const o1 = b.alloc();
+  const o2 = b.alloc();
+  b.setObj(outlines, `<< /Type /Outlines /First ${o1} 0 R /Last ${o2} 0 R /Count 2 >>`);
+  b.setObj(o1, `<< /Title (Introduction) /Parent ${outlines} 0 R /Next ${o2} 0 R /Dest [${p1} 0 R /Fit] >>`);
+  b.setObj(o2, `<< /Title (Summary) /Parent ${outlines} 0 R /Prev ${o1} 0 R /Dest [${p3} 0 R /Fit] >>`);
+  const ef = b.stream('/Type /EmbeddedFile /Subtype /text#2Fplain /Params << /Size 12 >>', bytes('hello world\n'));
+  const spec = b.obj(`<< /Type /Filespec /F (notes.txt) /UF (notes.txt) /EF << /F ${ef} 0 R >> >>`);
+  const js = b.obj("<< /S /JavaScript /JS (app.alert\\('hi'\\)) >>");
+  const info = b.obj("<< /Title (Quarterly invoices) /Author (Accounts) /CreationDate (D:20240102030405Z) /Producer (fixture) >>");
+  b.trailer('Info', `${info} 0 R`);
+  b.catalogExtra =
+    ` /Outlines ${outlines} 0 R /Names << /EmbeddedFiles << /Names [(notes.txt) ${spec} 0 R] >> /JavaScript << /Names [(hello) ${js} 0 R] >> >>` +
+    ` /AcroForm << /Fields [${field} 0 R] >> /Lang (en-GB)`;
+  return b.finish('doc-fixture').build().bytes;
 }

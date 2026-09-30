@@ -13,6 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { loadBench } from './src/bench.ts';
@@ -60,12 +61,25 @@ async function bundleCss(entry: string, opts: BuildOptions): Promise<string> {
 
 const hash = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex').slice(0, 10);
 
-/** Size of the library's browser entry, measured like scripts/size.ts does. */
+/**
+ * Browser bundle sizes, measured like scripts/size.ts does: compressPdfBlob alone (what an app
+ * that only compresses ships) and the whole library.
+ */
 async function librarySize(): Promise<BundleSize | null> {
-  const r = await Bun.build({ entrypoints: [`${ROOT}src/index.ts`], target: 'browser', format: 'esm', minify: true });
-  if (!r.success) return null;
-  const code = new Uint8Array(await r.outputs[0].arrayBuffer());
-  return { min: code.byteLength, gzip: Bun.gzipSync(code).byteLength };
+  // Entries outside node_modules: Bun treats entries there as dependency files.
+  const dir = join(tmpdir(), 'leanpdf-site-size');
+  await mkdir(dir, { recursive: true });
+  const measure = async (name: string, source: string): Promise<{ min: number; gzip: number } | null> => {
+    const entry = join(dir, `${name}.ts`);
+    await writeFile(entry, source);
+    const r = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'esm', minify: true });
+    if (!r.success) return null;
+    const code = new Uint8Array(await r.outputs[0].arrayBuffer());
+    return { min: code.byteLength, gzip: Bun.gzipSync(code).byteLength };
+  };
+  const lib = `${ROOT}src/index.ts`;
+  const [compress, all] = await Promise.all([measure('compress', `export { compressPdfBlob } from '${lib}';\n`), measure('all', `export * from '${lib}';\n`)]);
+  return compress && all ? { ...compress, all } : null;
 }
 
 function ogSvg(logo: string): string {
@@ -76,9 +90,9 @@ function ogSvg(logo: string): string {
   <rect width="1200" height="630" fill="url(#g)"/>
   <g transform="translate(96 150) scale(5.5)">${mark}</g>
   <text x="310" y="245" font-family="${font}" font-size="96" font-weight="700" fill="#ffffff">leanpdf</text>
-  <text x="312" y="315" font-family="${font}" font-size="36" fill="#c5ccd8">Small, low-memory, streaming PDF library</text>
+  <text x="312" y="315" font-family="${font}" font-size="36" fill="#c5ccd8">Small, low-memory, streaming PDF toolkit</text>
   <text x="312" y="365" font-family="${font}" font-size="36" fill="#c5ccd8">for browsers, Node and Bun</text>
-  <text x="96" y="530" font-family="${font}" font-size="30" fill="#80a8ff">Recompresses images. Copies the rest byte for byte.</text>
+  <text x="96" y="530" font-family="${font}" font-size="30" fill="#80a8ff">Compress, read, edit, merge, decrypt. In one pass.</text>
 </svg>`;
 }
 

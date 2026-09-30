@@ -44,7 +44,7 @@ export function page(o: PageOptions): string {
     ? `<meta property="og:image" content="${SITE_URL}/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="leanpdf: a small, low-memory, streaming PDF library">
+<meta property="og:image:alt" content="leanpdf: a small, low-memory, streaming PDF toolkit">
 <meta name="twitter:card" content="summary_large_image">`
     : '<meta name="twitter:card" content="summary">';
   return `<!doctype html>

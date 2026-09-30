@@ -15,7 +15,8 @@ bun site/screenshots.ts # PNGs of the main pages in site/screenshots/ (needs Chr
 
 Tests: `bun test test/unit/site.test.ts` (Markdown, `_headers`, benchmark rendering) and
 `bun test test/browser/site.test.ts` (builds the site, serves it with its `_headers`, and drives
-every page and the app in headless Chromium).
+every page and the Compress tool in headless Chromium) and `bun test test/browser/tools.test.ts`
+(the other tools, their outputs checked with the library).
 
 ## Layout
 
@@ -68,7 +69,18 @@ page shows a notice and the home page falls back to the README's memory figure.
   `error` from the worker. Cancelling aborts the job's AbortSignal.
 
 To add a tool: write `tools/<id>/job.ts` and add it to `JOBS`, write `tools/<id>/ui.ts` and add it
-to `TOOLS`. That's all; the tab, routing and worker plumbing are shared.
+to `TOOLS`. That's all; the tab, routing and worker plumbing are shared. `app/kit.ts` has the
+pieces most tools use (drop zone, progress and error cards with the run/cancel logic, result card
+with the download link, "… to file" button), `app/output.ts` is the worker-side counterpart that
+writes a PDF to a Blob or to a picked file, `app/probe.ts` is a quick job that reads a file's page
+count and encryption as soon as it is chosen, and `app/ranges.ts` parses page ranges.
+
+The tools: **Compress**, **Inspect** (metadata, page sizes, bookmarks, attachments, images, form
+fields and links; images and attachments can be saved), **Text** (extract, search, copy, download),
+**Pages & cleanup** (keep, reorder and rotate pages; remove metadata, JavaScript, attachments and
+unused objects; compress streams; repair, all in one `rewritePdf` pass), **Merge** and **Unlock**
+(decrypt). Tools that can't work on an encrypted file say so and point to Unlock. The worker
+bundles the whole library; the page script only has the UI.
 
 The Compress tool streams to disk when the browser has `showSaveFilePicker` (the worker gets the
 file handle and uses `compressPdf` with a `WritableStreamSink`), and otherwise builds a Blob with
