@@ -6,7 +6,7 @@ name: Publish to npm
 # - an NPM_TOKEN repository secret (a granular npm token with read and write access); needed for
 #   the very first publish, because npm can only attach a trusted publisher to an existing package;
 # - or npm trusted publishing (OIDC): on npmjs.com, package settings -> Trusted publisher ->
-#   GitHub Actions, repository benmerckx/leanpdf, workflow publish.yml. Then delete NPM_TOKEN.
+#   GitHub Actions, repository alineacms/leanpdf, workflow publish.yml. Then delete NPM_TOKEN.
 on:
   release:
     types: [published]

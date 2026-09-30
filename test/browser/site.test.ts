@@ -129,7 +129,7 @@ describe.skipIf(!browser)('site pages', () => {
     await page.goto(url('/'));
     expect(await page.textContent('h1')).toContain('Lean PDFs');
     expect(await page.textContent('#install-cmd')).toBe('npm install leanpdf');
-    expect(await page.locator('a[href="https://github.com/benmerckx/leanpdf"]').count()).toBeGreaterThan(0);
+    expect(await page.locator('a[href="https://github.com/alineacms/leanpdf"]').count()).toBeGreaterThan(0);
     expect(await page.locator('a[href="https://www.npmjs.com/package/leanpdf"]').count()).toBeGreaterThan(0);
     expect(await page.locator('a.button.primary[href="/app/"]').count()).toBe(1);
     expect(await page.locator('.stat').count()).toBe(loadBench() ? 3 : 2);

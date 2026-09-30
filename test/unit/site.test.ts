@@ -104,7 +104,7 @@ describe('docs from README.md', () => {
   test('section exclusion and link resolution', () => {
     const md = docsMarkdown('# T\n\nIntro\n\n## Keep\n\nk\n\n### Releasing\n\nsecret\n\n## Next\n\nn');
     expect(md).toBe('## Overview\n\nIntro\n\n## Keep\n\nk\n\n## Next\n\nn');
-    expect(resolveReadmeLink('LICENSE')).toBe('https://github.com/benmerckx/leanpdf/blob/main/LICENSE');
+    expect(resolveReadmeLink('LICENSE')).toBe('https://github.com/alineacms/leanpdf/blob/main/LICENSE');
     expect(resolveReadmeLink('#install')).toBe('#install');
     expect(resolveReadmeLink('#benchmarks')).toBe('/benchmarks/');
     expect(resolveReadmeLink('https://sharp.pixelplumbing.com/')).toBe('https://sharp.pixelplumbing.com/');

@@ -1,6 +1,6 @@
 /** Site-wide constants, used at build time. */
 
-export const REPO = 'benmerckx/leanpdf';
+export const REPO = 'alineacms/leanpdf';
 export const GITHUB_URL = `https://github.com/${REPO}`;
 export const NPM_URL = 'https://www.npmjs.com/package/leanpdf';
 
