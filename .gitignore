@@ -1,0 +1,7 @@
+node_modules/
+dist/
+demo/dist/
+test/.corpus/
+test/.out/
+*.tmp
+.DS_Store

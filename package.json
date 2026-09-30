@@ -1,0 +1,58 @@
+{
+  "name": "pdf-compress",
+  "version": "0.1.0",
+  "description": "Small, low-memory PDF image compressor for browsers and Node. Streams the file, recompresses embedded images, copies everything else byte for byte.",
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./sharp": {
+      "types": "./dist/sharp.d.ts",
+      "default": "./dist/sharp.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "compress-pdf": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json",
+    "test": "bun test",
+    "size": "bun scripts/size.ts",
+    "demo": "bun demo/serve.ts",
+    "cli": "bun src/cli.ts"
+  },
+  "peerDependencies": {
+    "sharp": ">=0.34.0"
+  },
+  "peerDependenciesMeta": {
+    "sharp": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^26.6.3",
+    "esbuild": "^0.28.2",
+    "mupdf": "^1.28.1",
+    "playwright-core": "^1.63.0",
+    "sharp": "^0.35.5",
+    "typescript": "5.9"
+  }
+}
