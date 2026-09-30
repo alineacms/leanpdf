@@ -15,6 +15,8 @@ export interface OutputSink {
   /** Copy bytes [offset, offset+length) from the source. Default impl: read + write. */
   copyRange(source: RandomAccessSource, offset: number, length: number): Promise<void>;
   close(): Promise<void>;
+  /** Optional: called instead of `close()` when compression fails, to discard partial output. */
+  abort?(reason?: unknown): Promise<void>;
 }
 
 /** Gray or RGB. CMYK is never passed to codecs. */

@@ -57,7 +57,7 @@ export async function inflateRange(
     .pipeThrough(ds as unknown as ReadableWritablePair<Uint8Array, Uint8Array>)
     .getReader();
   for (;;) {
-    let res: ReadableStreamReadResult<Uint8Array>;
+    let res: Awaited<ReturnType<typeof r.read>>;
     try {
       res = await r.read();
     } catch {

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install qpdf
+        run: sudo apt-get update && sudo apt-get install -y qpdf
+      - run: bun install --frozen-lockfile
+      - name: Install Chromium for the browser tests
+        run: bunx playwright-core install --with-deps chromium
+      - run: bun run typecheck
+      - name: Bundle-size budget (browser entry <= 50 KB minified)
+        run: bun run size
+      - run: bun test
+      - run: bun run build
+
+  node:
+    # The published build must run on plain Node, not just Bun.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install qpdf
+        run: sudo apt-get update && sudo apt-get install -y qpdf
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: Compress a generated PDF with the built CLI under Node ${{ matrix.node }}
+        run: |
+          bun scripts/smoke-fixture.ts smoke.pdf
+          node dist/cli.js smoke.pdf smoke.out.pdf
+          qpdf --check smoke.out.pdf

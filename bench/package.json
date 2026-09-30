@@ -1,0 +1,12 @@
+{
+  "name": "pdf-compress-bench",
+  "private": true,
+  "type": "module",
+  "description": "Benchmarks of pdf-compress against other JavaScript PDF compressors. Kept separate so the library has no dependency on them.",
+  "dependencies": {
+    "@jspawn/ghostscript-wasm": "0.0.2",
+    "mupdf": "1.28.1",
+    "pdf-lib": "1.17.1",
+    "sharp": "0.35.5"
+  }
+}

@@ -36,7 +36,8 @@
     "test": "bun test",
     "size": "bun scripts/size.ts",
     "demo": "bun demo/serve.ts",
-    "cli": "bun src/cli.ts"
+    "cli": "bun src/cli.ts",
+    "test:large": "bun test/large/memory.ts"
   },
   "peerDependencies": {
     "sharp": ">=0.34.0"

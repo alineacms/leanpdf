@@ -38,7 +38,7 @@ export async function compressPdf(source: RandomAccessSource, sink: OutputSink, 
     await sink.close();
     return report;
   } catch (e) {
-    await (sink as { abort?: (e: unknown) => Promise<void> }).abort?.(e)?.catch(() => {});
+    await sink.abort?.(e).catch(() => {});
     throw e;
   }
 }
@@ -96,6 +96,10 @@ async function run(source: RandomAccessSource, sink: OutputSink, options: Compre
     if (hdr!.stream && nameOf(d.get('Type')) === 'XRef') dropped.add(order[i]);
     if (i === 0 && !hdr!.stream && d.get('Linearized') !== undefined) dropped.add(order[i]);
   }
+  const root = await doc.resolve(doc.trailer.get('Root'));
+  const form = root instanceof PdfDict ? await doc.resolve(root.get('AcroForm')) : undefined;
+  const sigFlags = form instanceof PdfDict ? await doc.resolve(form.get('SigFlags')) : undefined;
+  if (typeof sigFlags === 'number' && sigFlags & 1) report.signaturesInvalidated = true;
   if (report.signaturesInvalidated) report.warnings.push('The document is digitally signed; the signatures will no longer validate');
 
   // Object streams stay verbatim, so their members keep their compressed entries.
@@ -119,16 +123,18 @@ async function run(source: RandomAccessSource, sink: OutputSink, options: Compre
     }
   };
 
+  /** An object ends before the next object or xref section, whichever comes first. */
   const boundaryAfter = (i: number): number => {
     const start = index.a[order[i]];
-    let b = i + 1 < order.length ? index.a[order[i + 1]] : reader.size;
-    for (const s of sections) {
-      if (s > start) {
-        if (s < b) b = s;
-        break;
-      }
+    const b = i + 1 < order.length ? index.a[order[i + 1]] : reader.size;
+    let lo = 0;
+    let hi = sections.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sections[mid] > start) hi = mid;
+      else lo = mid + 1;
     }
-    return b;
+    return Math.min(b, sections[lo]);
   };
 
   const processImage = async (hdr: ObjHeader, span: ObjSpan, plan: ImagePlan): Promise<ImageResult> => {
@@ -222,7 +228,9 @@ async function run(source: RandomAccessSource, sink: OutputSink, options: Compre
     if (t === E_COMPRESSED && newOffset[index.a[n]] >= 0) return [2, index.a[n], index.b[n]];
     return [0, 0, t === E_FREE ? index.b[n] : 0];
   };
-  const size = Math.max(index.size, doc.declaredSize);
+  // Keep object numbers the source reserved (so no dangling reference can hit the new xref
+  // stream), but don't let an absurd /Size bloat the table.
+  const size = Math.max(index.size, Math.min(doc.declaredSize, index.size + 4096));
   if (useXrefStream) await writeXrefStream(w, size, entry, doc.trailer);
   else await writeXrefTable(w, size, entry, doc.trailer);
   await w.flush();

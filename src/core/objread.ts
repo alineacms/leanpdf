@@ -21,7 +21,7 @@ export interface ObjHeader {
   endobj: number;
 }
 
-const MAX_HEADER = 64 << 20;
+const MAX_HEADER = 16 << 20;
 
 /** Parse `N G obj <value>` from a buffer whose first byte is at absolute offset `base`. */
 export function parseObjectHeader(buf: Uint8Array, base: number, final: boolean): ObjHeader {

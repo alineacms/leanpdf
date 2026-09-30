@@ -5,3 +5,6 @@ test/.corpus/
 test/.out/
 *.tmp
 .DS_Store
+bench/.corpus/
+bench/.out/
+bench/node_modules/
