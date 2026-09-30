@@ -45,6 +45,7 @@ export class NodeFileSource implements RandomAccessSource {
 export class NodeFileSink implements OutputSink {
   readonly handle: FileHandle;
   private pos = 0;
+  private copyBuf: Uint8Array | undefined;
 
   constructor(handle: FileHandle) {
     this.handle = handle;
@@ -64,8 +65,12 @@ export class NodeFileSink implements OutputSink {
   }
 
   async copyRange(source: RandomAccessSource, offset: number, length: number): Promise<void> {
+    // From a file, read into one reused buffer: allocating a chunk per read leaves garbage
+    // proportional to the bytes copied, and peak memory then depends on when the GC runs.
+    const buf = source instanceof NodeFileSource ? (this.copyBuf ??= new Uint8Array(COPY_CHUNK)) : undefined;
     for (let p = offset, end = offset + length; p < end; ) {
-      const chunk = await source.read(p, Math.min(COPY_CHUNK, end - p));
+      const n = Math.min(COPY_CHUNK, end - p);
+      const chunk = buf ? buf.subarray(0, (await (source as NodeFileSource).handle.read(buf, 0, n, p)).bytesRead) : await source.read(p, n);
       if (!chunk.length) throw new Error('Unexpected end of input');
       await this.write(chunk);
       p += chunk.length;
