@@ -3,7 +3,7 @@
  *   brochure.pdf  12 pages of photo spreads: 24 large JPEG photos, text, vector art
  *   scan.pdf      12 scanned A4 pages at 300 dpi: grayscale Flate images
  *   report.pdf    40 pages of text and vector charts with a few photos and a screenshot with alpha
- *   large.pdf     ~600 MB of 4000x3000 photos (JPEG and Flate) to show the memory bound
+ *   large.pdf     ~600 MB of distinct 4000x3000 photos (JPEG and Flate) to show the memory bound
  */
 import { existsSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
@@ -240,11 +240,11 @@ async function large(path: string): Promise<void> {
   const w = new Writer(path);
   await w.start();
   const kids: number[] = [];
-  const jpg = await photo(4000, 3000, 5, 97);
-  const px = await rawPixels(jpg);
-  const flate = flatePng(px.data, 4000, 3000, 3);
   const target = 600 * 1048576;
+  // A different photo on every page: tools that deduplicate identical images get no free win.
   for (let p = 0; w.pos < target; p++) {
+    const jpg = await photo(4000, 3000, 100 + p, 97);
+    const flate = p % 4 === 3 ? flatePng((await rawPixels(jpg)).data, 4000, 3000, 3) : undefined;
     const page = w.num++;
     const content = w.num++;
     const img = w.num++;
@@ -252,7 +252,7 @@ async function large(path: string): Promise<void> {
     const draw = `q 500 0 0 375 50 300 cm /Im Do Q BT /F1 24 Tf 50 100 Td (Page ${p + 1}) Tj ET`;
     await w.obj(page, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources ${FONT} /XObject << /Im ${img} 0 R >> >> /Contents ${content} 0 R >>`);
     await w.obj(content, `<< /Length ${draw.length} >>`, Buffer.from(draw, 'latin1'));
-    if (p % 4 === 3) {
+    if (flate) {
       await w.obj(img, `<< /Type /XObject /Subtype /Image /Width 4000 /Height 3000 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 12 /Colors 3 /Columns 4000 >> /Length ${flate.length} >>`, flate);
     } else {
       await w.obj(img, `<< /Type /XObject /Subtype /Image /Width 4000 /Height 3000 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpg.length} >>`, jpg);

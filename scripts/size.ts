@@ -1,25 +1,39 @@
 /**
- * Bundle-size budget for the browser entry (core + browser I/O + browser codec).
- * Fails when the minified bundle exceeds the budget.
+ * Bundle-size budget. Each scenario bundles a one-line entry that imports only some exports, the
+ * way an app would, so this also checks that unused features tree-shake away. Fails when the
+ * compression bundle (core + Blob I/O + browser codec) exceeds its budget.
  */
-const BUDGET = 50 * 1024;
+const KB = 1024;
+const lib = new URL('../src/index.ts', import.meta.url).pathname;
 
-const result = await Bun.build({
-  entrypoints: [new URL('../src/index.ts', import.meta.url).pathname],
-  target: 'browser',
-  format: 'esm',
-  minify: true,
-});
-if (!result.success) {
-  for (const log of result.logs) console.error(log);
-  process.exit(1);
+const SCENARIOS: { name: string; imports: string; budget?: number }[] = [
+  { name: 'compressPdfBlob (core + Blob I/O + browser codec)', imports: 'compressPdfBlob', budget: 50 * KB },
+  { name: 'openPdf', imports: 'openPdf' },
+  { name: 'rewritePdf (no plugins)', imports: 'rewritePdf' },
+  { name: 'everything', imports: '*' },
+];
+
+// Outside node_modules: Bun treats entries there as dependency files.
+const dir = `${(await import('node:os')).tmpdir()}/leanpdf-size/`;
+let failed = false;
+const rows: string[] = [];
+for (const s of SCENARIOS) {
+  const entry = `${dir}${s.name.replace(/\W+/g, '-')}.ts`;
+  await Bun.write(entry, s.imports === '*' ? `export * from '${lib}';\n` : `export { ${s.imports} } from '${lib}';\n`);
+  const result = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'esm', minify: true });
+  if (!result.success) {
+    for (const log of result.logs) console.error(log);
+    process.exit(1);
+  }
+  const code = new Uint8Array(await result.outputs[0].arrayBuffer());
+  const min = code.byteLength;
+  const gz = Bun.gzipSync(code).byteLength;
+  const over = s.budget !== undefined && min > s.budget;
+  failed ||= over;
+  rows.push(
+    `${s.name.padEnd(52)} ${(min / KB).toFixed(1).padStart(6)} KB min ${(gz / KB).toFixed(1).padStart(6)} KB gz` +
+      (s.budget ? `  (budget ${(s.budget / KB).toFixed(0)} KB${over ? ', OVER' : ''})` : ''),
+  );
 }
-const code = await result.outputs[0].arrayBuffer();
-const min = code.byteLength;
-const gz = Bun.gzipSync(new Uint8Array(code)).byteLength;
-const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
-console.log(`browser entry: ${kb(min)} minified, ${kb(gz)} gzipped (budget ${kb(BUDGET)})`);
-if (min > BUDGET) {
-  console.error(`Over budget by ${kb(min - BUDGET)}`);
-  process.exit(1);
-}
+console.log(rows.join('\n'));
+if (failed) process.exit(1);
