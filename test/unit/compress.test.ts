@@ -80,7 +80,7 @@ describe('passthrough', () => {
     }
     expect(text.match(/xref/g)?.length).toBe(2); // "xref" and "startxref"
     expect(text).not.toContain('/Prev');
-    expect(text).toContain('/ID [<01><02>]');
+    expect(text).toContain('/ID [<01> <02>]');
     expect(report).toMatchObject({ imagesSeen: 0, imagesRecompressed: 0, inputBytes: src.length, outputBytes: out.length, xrefRepaired: false });
     expect(sink.copies).toBe(1); // contiguous objects merge into a single copy
     expect(sink.closed).toBe(true);

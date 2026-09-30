@@ -54,7 +54,8 @@
     "demo": "bun demo/serve.ts",
     "cli": "bun src/cli.ts",
     "test:large": "bun test/large/memory.ts",
-    "prepublishOnly": "bun run typecheck && bun run size && bun run build"
+    "prepublishOnly": "bun run typecheck && bun run size && bun run build",
+    "demo:build": "bun demo/build.ts"
   },
   "peerDependencies": {
     "sharp": ">=0.34.0"

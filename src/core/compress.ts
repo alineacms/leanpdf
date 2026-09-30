@@ -168,7 +168,8 @@ async function run(source: RandomAccessSource, sink: OutputSink, options: Compre
     if (!hdr) {
       // Unparseable: copy verbatim up to the next known object.
       const start = index.a[num];
-      return { num, kind: 'copy', span: { start, end: boundary, dataStart: -1, dataEnd: -1, addEndobj: false, sep: true } };
+      const sep = !(await doc.endsWithWhite(boundary));
+      return { num, kind: 'copy', span: { start, end: boundary, dataStart: -1, dataEnd: -1, addEndobj: false, sep } };
     }
     const span = await doc.span(hdr, boundary);
     if (hdr.stream && span.dataEnd >= 0) {

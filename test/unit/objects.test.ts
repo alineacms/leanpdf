@@ -42,6 +42,11 @@ describe('object parser', () => {
     expect((parse('<< /K 1 /K 2 >>') as PdfDict).dup).toBe(true);
   });
 
+  test('a stray dictionary or array in key position is skipped whole', () => {
+    const d = parse('<< /Type /Catalog << /X 1 >> /Pages 2 0 R [1 2] /K 3 >>') as PdfDict;
+    expect([...d.map.keys()]).toEqual(['Type', 'Pages', 'K']);
+  });
+
   test('structural keywords inside values are errors, not silently swallowed', () => {
     expect(() => parse('<< /A 1 endobj')).toThrow(PdfSyntaxError);
     expect(() => parse('[1 2')).toThrow(PdfSyntaxError);

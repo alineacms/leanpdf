@@ -1,4 +1,4 @@
-import { ascii, skipWhite } from './bytes.ts';
+import { ascii, isWhite, skipWhite } from './bytes.ts';
 import { isFatal, PdfFormatError } from './errors.ts';
 import { inflateAll, inflateRange } from './flate.ts';
 import { Lexer, T_NUM } from './lexer.ts';
@@ -225,6 +225,11 @@ export class PdfDocument {
     return out;
   }
 
+  /** Is the byte before `pos` whitespace (so no separator is needed after a copy ending there)? */
+  async endsWithWhite(pos: number): Promise<boolean> {
+    return pos > 0 && isWhite((await this.reader.read(pos - 1, 1))[0]);
+  }
+
   /**
    * Find the full extent of an object. Stream data ends at /Length when that lands on
    * `endstream`; otherwise we search forward, but never past `boundary`.
@@ -249,8 +254,8 @@ export class PdfDocument {
         end = found.end;
         addEndobj = !found.endobj;
       } else {
-        dataStart = -1;
-        end = Math.max(boundary, start);
+        // Unknown end: copy verbatim up to the next object.
+        return { start, end: Math.max(boundary, start), dataStart: -1, dataEnd: -1, addEndobj: false, sep: !(await this.endsWithWhite(boundary)) };
       }
     }
     // Take the line break after `endobj` along, so neighbouring copies can merge.

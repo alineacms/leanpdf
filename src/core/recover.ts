@@ -87,6 +87,7 @@ export async function scanObjects(reader: SourceReader, signal?: AbortSignal): P
         if (isFatal(e)) throw e;
         continue;
       }
+      if (hdr.num === 0) continue; // object 0 is always the head of the free list
       index.set(hdr.num, E_OFFSET, start, hdr.gen);
       const d = hdr.value;
       const type = d instanceof PdfDict ? nameOf(d.get('Type')) : undefined;

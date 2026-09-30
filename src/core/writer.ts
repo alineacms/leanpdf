@@ -1,8 +1,7 @@
 import { ascii, latin1 } from './bytes.ts';
 import { deflate } from './flate.ts';
-import { encodeName, type PdfDict } from './objects.ts';
+import { PdfRef, PdfString, type PdfDict } from './objects.ts';
 import type { OutputSink, RandomAccessSource } from './types.ts';
-import { XREF_KEYS } from './xref.ts';
 
 const BUF = 64 * 1024;
 
@@ -75,11 +74,21 @@ export class OutputWriter {
 /** One output cross-reference entry: [type 0/1/2, field2, field3]. */
 export type XrefEntryFn = (num: number) => [number, number, number];
 
-/** Serialize the carried-over trailer keys (/Root, /Info, /ID, ...) from their source bytes. */
+const isHexString = (raw: Uint8Array): boolean => /^<[0-9A-Fa-f\s]*>$/.test(latin1(raw));
+
+/**
+ * The document-level trailer keys we carry over: /Root and /Info (indirect references) and /ID
+ * (two strings). Anything else, or anything malformed, is dropped rather than copied into the
+ * one part of the file every reader must be able to parse.
+ */
 export function trailerEntries(trailer: PdfDict): string {
   let s = '';
-  for (const [k, raw] of trailer.raw) {
-    if (!XREF_KEYS.has(k) && k !== 'Encrypt') s += `${encodeName(k)} ${latin1(raw)}\n`;
+  for (const k of ['Root', 'Info']) {
+    if (trailer.get(k) instanceof PdfRef) s += `/${k} ${latin1(trailer.raw.get(k)!)}\n`;
+  }
+  const id = trailer.get('ID');
+  if (Array.isArray(id) && id.length === 2 && id.every((x) => x instanceof PdfString && (x.raw[0] !== 0x3c || isHexString(x.raw)))) {
+    s += `/ID [${id.map((x) => latin1((x as PdfString).raw)).join(' ')}]\n`;
   }
   return s;
 }

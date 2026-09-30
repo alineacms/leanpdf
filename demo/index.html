@@ -49,7 +49,7 @@
     input[type=range] { width: 100%; }
     .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-    .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 22px 12px; border: 2px dashed var(--line); border-radius: var(--radius); text-align: center; cursor: pointer; color: var(--muted); margin-bottom: 14px; }
+    .drop { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 22px 12px; border: 2px dashed var(--line); border-radius: var(--radius); text-align: center; cursor: pointer; color: var(--muted); margin-bottom: 14px; }
     .drop.over { border-color: var(--accent); color: var(--text); }
     .drop strong { color: var(--text); word-break: break-all; }
     .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -84,6 +84,9 @@
 <main>
   <h1>PDF image compressor</h1>
   <p class="lead">Downscales and re-encodes the images inside a PDF, entirely in your browser. Everything else is copied byte for byte.</p>
+
+  <p class="warn" id="not-loaded">The demo script did not load. Serve this page with <code>bun run demo</code>, or build a
+    self-contained copy with <code>bun run demo:build</code> and open <code>demo/dist/index.html</code>.</p>
 
   <section>
     <label class="drop" id="drop" for="file">

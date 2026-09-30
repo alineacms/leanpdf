@@ -5,6 +5,10 @@
 import type { CompressReport } from '../src/index.ts';
 import type { WorkerRequest, WorkerResponse } from './worker.ts';
 
+declare const __WORKER_SOURCE__: string | undefined;
+
+document.getElementById('not-loaded')?.remove();
+
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`#${id} missing`);
@@ -314,7 +318,13 @@ function showError(msg: string): void {
 
 function getWorker(): Worker {
   if (!worker) {
-    worker = new Worker('worker.js', { type: 'module' });
+    // The standalone build (demo/build.ts) inlines the worker; the dev server serves worker.js.
+    // The inlined bundle has no imports, so it runs as a classic worker, which (unlike module
+    // workers) may start from a Blob URL on file:// pages too.
+    worker =
+      typeof __WORKER_SOURCE__ === 'string'
+        ? new Worker(URL.createObjectURL(new Blob([__WORKER_SOURCE__], { type: 'text/javascript' })))
+        : new Worker('worker.js', { type: 'module' });
     worker.onerror = (e) => {
       finish();
       showError(`Worker failed: ${e.message || 'unknown error'}`);

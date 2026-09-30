@@ -119,6 +119,11 @@ export class Parser {
           if (k.t === T_EOF) throw new PdfSyntaxError('unterminated dictionary');
           if (k.t !== T_NAME) {
             if (k.t === T_KW && STRUCTURAL.has(k.v as string)) throw new PdfSyntaxError('unterminated dictionary');
+            if (k.t === T_DOPEN || k.t === T_AOPEN) {
+              // A stray container where a key belongs: skip all of it, not just its opening token.
+              this.q.unshift(k);
+              this.parse(depth + 1);
+            }
             continue; // tolerate stray tokens
           }
           const v0 = this.peek();
