@@ -14,7 +14,21 @@ import { E_COMPRESSED, E_FREE, E_OFFSET } from './xref.ts';
  * next plugin (and finally copies it), `body` replaces its value (everything between `N G obj`
  * and `endobj`), `task` computes a replacement asynchronously while later objects are analyzed.
  */
-export type ObjectAction = undefined | { drop: true } | { body: Uint8Array[] } | { task: Promise<TaskResult> };
+export type ObjectAction =
+  | undefined
+  | { drop: true }
+  | { body: Uint8Array[] }
+  | { task: Promise<TaskResult> }
+  | { stream: StreamReplacement };
+
+/**
+ * A stream written chunk by chunk when its turn comes, so large data never has to be held whole.
+ * `dict` is the complete new dictionary (with the final /Length), `data` yields exactly that many bytes.
+ */
+export interface StreamReplacement {
+  dict: string;
+  data: () => AsyncIterable<Uint8Array>;
+}
 
 /** A task's replacement (null keeps the object), or a function producing it when the object is written. */
 export type TaskResult = Uint8Array[] | null | (() => Uint8Array[] | null);
@@ -80,6 +94,7 @@ type Plan = {
   body?: Uint8Array[];
   /** New dictionary for a stream whose data is copied verbatim. */
   streamDict?: string;
+  stream?: StreamReplacement;
   task?: Promise<{ ok: TaskResult } | { err: unknown }>;
 };
 
@@ -240,6 +255,7 @@ async function run(input: RandomAccessSource | PdfDocument, sink: OutputSink, pl
       if (!a) continue;
       if ('drop' in a) return { num, drop: true };
       if ('body' in a) return { num, body: a.body };
+      if ('stream' in a) return { num, stream: a.stream };
       // If the task keeps the object, it is written as it would have been without the plugin.
       const fallback = e ? editedPlan(num, hdr, span) : { num, span };
       return { ...fallback, task: a.task.then((ok) => ({ ok }), (err: unknown) => ({ err })) };
@@ -274,6 +290,13 @@ async function run(input: RandomAccessSource | PdfDocument, sink: OutputSink, pl
     }
     if (p.drop) return;
     if (p.body) return writeBody(p.num, index.b[p.num], p.body);
+    if (p.stream) {
+      newOffset[p.num] = w.pos;
+      await w.write(`${p.num} ${index.b[p.num]} obj\n${p.stream.dict}\nstream\n`);
+      for await (const chunk of p.stream.data()) await w.write(chunk);
+      await w.write('\nendstream\nendobj\n');
+      return;
+    }
     const span = p.span!;
     newOffset[p.num] = w.pos;
     if (p.streamDict !== undefined && span.dataEnd >= 0) {

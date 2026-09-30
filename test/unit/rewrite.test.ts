@@ -124,3 +124,23 @@ function dictOf(entries: Record<string, PdfName | number>): PdfDict {
   for (const [k, v] of Object.entries(entries)) d.set(k, v, new Uint8Array());
   return d;
 }
+
+test('a stream replacement is written chunk by chunk in its place', async () => {
+  const { doc } = await run(miniPdf(BASE_OBJECTS, '/Root 1 0 R').text, [
+    {
+      transform: (num) =>
+        num === 4
+          ? {
+              stream: {
+                dict: '<< /Length 23 >>',
+                async *data() {
+                  yield new TextEncoder().encode('1 0 0 rg ');
+                  yield new TextEncoder().encode('0 0 50 50 re f');
+                },
+              },
+            }
+          : undefined,
+    },
+  ]);
+  expect(Buffer.from((await doc.streamData((await doc.header(4))!, 1 << 20))!).toString()).toBe('1 0 0 rg 0 0 50 50 re f');
+});
