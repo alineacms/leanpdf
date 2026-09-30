@@ -154,6 +154,9 @@ interface OutputSink {
 - `BlobSource(blob)` reads through `blob.slice().arrayBuffer()`.
 - `BlobPartsSink()` collects `Uint8Array`s and blob slices. `copyRange` from a `BlobSource`
   pushes `blob.slice(...)`, so passthrough bytes are never copied. Read `.blob` after close.
+  (Bun 1.3 can't combine slices of file-backed Blobs such as `Bun.file()` with other parts; the
+  sink detects this and copies those bytes instead. On Bun, prefer `NodeFileSource` and
+  `NodeFileSink` for large files.)
 - `WritableStreamSink(stream)` writes to any `WritableStream<Uint8Array>` with backpressure.
 - `NodeFileSource.open(path)` / `NodeFileSink.create(path)` wrap `fs.promises.FileHandle`.
 

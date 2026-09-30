@@ -66,8 +66,10 @@ describe.skipIf(!browser)('demo page', () => {
     expect(await page.textContent('#progress-text')).toStartWith('100%');
     expect(await page.textContent('#r-recompressed')).toBe('3');
     expect(await page.textContent('#r-skipped')).toContain('below the size threshold');
-    // Peak memory was sampled during the run.
-    await page.waitForFunction(() => /^Page \+ worker: [\d.]+ (KB|MB)/.test(document.getElementById('r-memory')?.textContent ?? ''));
+    // Peak memory was sampled during the run by at least one meter. measureUserAgentSpecificMemory()
+    // answers at Chrome's discretion (newer Chromium builds may ignore ForceEagerMeasureMemory), so
+    // performance.memory's reading counts too.
+    await page.waitForFunction(() => /: [\d.]+ (KB|MB)/.test(document.getElementById('r-memory')?.textContent ?? ''), undefined, { timeout: 15_000 });
 
     const outBytes = Number(await page.getAttribute('#report', 'data-output-bytes'));
     const href = (await page.getAttribute('#download', 'href'))!;

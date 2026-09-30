@@ -1,7 +1,12 @@
 name: Publish to npm
 
 # Publishes when a GitHub release is published (tag vX.Y.Z matching package.json), or manually.
-# Needs an NPM_TOKEN repository secret (an npm automation or granular token with publish rights).
+#
+# Authentication, either:
+# - an NPM_TOKEN repository secret (a granular npm token with read and write access); needed for
+#   the very first publish, because npm can only attach a trusted publisher to an existing package;
+# - or npm trusted publishing (OIDC): on npmjs.com, package settings -> Trusted publisher ->
+#   GitHub Actions, repository benmerckx/leanpdf, workflow publish.yml. Then delete NPM_TOKEN.
 on:
   release:
     types: [published]
@@ -28,6 +33,8 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Install qpdf
         run: sudo apt-get update && sudo apt-get install -y qpdf
+      - name: Use npm >= 11.5 (trusted publishing)
+        run: npm install -g npm@latest
       - run: bun install --frozen-lockfile
       - name: Install Chromium for the browser tests
         run: bunx playwright-core install --with-deps chromium
