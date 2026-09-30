@@ -61,8 +61,20 @@ export async function numArray(doc: PdfDocument, o: PdfObj | undefined): Promise
  * Load a function object (dictionary or stream), or an array of 1-output functions (their outputs
  * concatenated, as for shadings and tint transforms). Undefined when it can't be used.
  */
+/** Functions by object number, per document: shadings and color spaces share them across draws. */
+const loaded = /* @__PURE__ */ new WeakMap<PdfDocument, Map<number, Promise<PdfFunction | undefined>>>();
+
 export function loadFunction(doc: PdfDocument, o: PdfObj | undefined): Promise<PdfFunction | undefined> {
-  return load(doc, o, 0, { memo: new Map(), left: MAX_NODES });
+  if (!(o instanceof PdfRef)) return load(doc, o, 0, { memo: new Map(), left: MAX_NODES });
+  let m = loaded.get(doc);
+  if (!m) loaded.set(doc, (m = new Map()));
+  let f = m.get(o.num);
+  if (!f) {
+    m.set(o.num, (f = load(doc, o, 0, { memo: new Map(), left: MAX_NODES })));
+    // A read error isn't kept.
+    f.catch(() => m.delete(o.num));
+  }
+  return f;
 }
 
 async function load(doc: PdfDocument, o: PdfObj | undefined, depth: number, ctx: Ctx): Promise<PdfFunction | undefined> {

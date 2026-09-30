@@ -168,8 +168,14 @@ export async function authenticate(doc: PdfDocument, password: string): Promise<
   const str = await pick('StrF', NONE);
   const eff = await pick('EFF', stm);
 
-  // Key length in bits: only V2 declares it (like qpdf, V4 keys are always 128 bits).
-  const bits = v === 1 ? 40 : v === 4 ? 128 : v === 5 ? 256 : (intOf(await get('Length')) ?? 40);
+  // Key length in bits. V4 gives it in the stream crypt filter (default 128), which some
+  // producers write in bytes: read values below 40 as bytes, as pdf.js does.
+  let bits = v === 1 ? 40 : v === 5 ? 256 : (intOf(await get('Length')) ?? 40);
+  if (v === 4) {
+    const sf = cf instanceof PdfDict ? await get(nameOf(await get('StmF')) ?? 'StdCF', cf) : undefined;
+    const len = (sf instanceof PdfDict ? intOf(await get('Length', sf)) : undefined) ?? 128;
+    bits = Math.min(128, Math.max(40, len < 40 ? len * 8 : len));
+  }
   if (v === 2 && (bits % 8 || bits < 40 || bits > 128)) throw malformed(`invalid key length ${bits}`);
 
   const ids = await doc.resolve(doc.trailer.get('ID'));

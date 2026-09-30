@@ -63,6 +63,54 @@ function toPath(o: number[]): Path2D | null {
   return p;
 }
 
+/** ZapfDingbats code of glyph names a0..a206 (Adobe's names for its glyphs); space for none. */
+const ZAPF_NAMES =
+  ' !"$%&=>?@A*+,-./123456789:;<BCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnoqstuv wxyz\x87\x89\x8a\x8b\x80\x81\x84\x85\x82\x83\x8c\x8d{|}~¡¢£¤0¥¦§«ª©¨    )(\'¬\xad®¯°±²³´µ¶·¸¹º»¼½¾¿ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕãÖ×ÙÛÜÝÞßàáâäåæçèéëíïòóõøúûüýþÚêöùØô÷ìîñ#pr\x86\x88';
+/** ZapfDingbats codes 0x21-0x7E and 0xA1-0xFE that Unicode placed outside the run of the Dingbats block. */
+const ZAPF_MOVED: Record<number, number> = {
+  0x25: 0x260e, 0x2a: 0x261b, 0x2b: 0x261e, 0x48: 0x2605, 0x6c: 0x25cf, 0x6e: 0x25a0, 0x73: 0x25b2, 0x74: 0x25bc, 0x75: 0x25c6, 0x77: 0x25d7,
+  0xa8: 0x2663, 0xa9: 0x2666, 0xaa: 0x2665, 0xab: 0x2660, 0xd5: 0x2192, 0xd6: 0x2194, 0xd7: 0x2195,
+};
+
+/** A ZapfDingbats code as Unicode (the Dingbats block follows the font's layout), '' when none. */
+function dingbat(c: number): string {
+  const u =
+    ZAPF_MOVED[c] ??
+    (c === 32 ? 32 : c > 32 && c < 0x7f ? 0x2700 + c - 0x20 : c >= 0x80 && c < 0x8e ? 0x2768 + c - 0x80 : c < 0xa1 ? 0 : c < 0xac ? 0x2761 + c - 0xa1 : c < 0xb6 ? 0x2460 + c - 0xac : c < 0xd5 ? 0x2776 + c - 0xb6 : 0x2798 + c - 0xd8);
+  return u ? String.fromCharCode(u) : '';
+}
+
+/** Symbol codes 0xA0-0xFE as Unicode, for drawing ('_' for none); text extraction keeps fewer. */
+const SYMBOL_HIGH = '€ϒ′≤⁄∞ƒ♣♦♥♠↔←↑→↓°±″≥×∝∂•÷≠≡≈…__↵ℵℑℜ℘⊗⊕∅∩∪⊃⊇⊄⊂⊆∈∉∠∇___∏√⋅¬∧∨⇔⇐⇑⇒⇓◊〈___∑___________〉∫⌠_⌡_________';
+
+/**
+ * The text a system font draws for a code of a non-embedded Symbol or ZapfDingbats font: symbols
+ * and dingbats that text extraction leaves out, through /Differences glyph names too.
+ */
+async function symbolText(doc: PdfDocument, d: PdfDict, name: string, text: (code: number, n: number) => string): Promise<((code: number, n: number) => string) | undefined> {
+  const zapf = /dingbat/i.test(name);
+  if (!zapf && !/symbol/i.test(name)) return undefined;
+  const enc = await doc.resolve(d.get('Encoding'));
+  const diffs = enc instanceof PdfDict ? await doc.resolve(enc.get('Differences')) : undefined;
+  const names: string[] = [];
+  if (Array.isArray(diffs)) {
+    let code = 0;
+    for (const x of diffs) {
+      const v = await doc.resolve(x);
+      if (typeof v === 'number') code = v;
+      else if (v instanceof PdfName && code >= 0 && code < 256) names[code++] = v.name;
+    }
+  }
+  return (code, n) => {
+    const g = names[code];
+    const a = g && /^a(\d{1,3})$/.exec(g);
+    const c = a ? (ZAPF_NAMES.charCodeAt(+a[1]) || 32) : g ? -1 : code;
+    if (c < 0) return text(code, n);
+    const t = zapf ? dingbat(c) : c >= 0xa0 && c <= 0xfe ? SYMBOL_HIGH[c - 0xa0] : '';
+    return t && t !== '_' ? t : text(code, n);
+  };
+}
+
 /** CSS for a font that isn't embedded, from its name and descriptor flags. */
 function systemFont(base: string, flags: number, weight: number | undefined): (size: number) => string {
   const n = base.toLowerCase();
@@ -181,10 +229,11 @@ function trueTypeGid(p: FontProgram, names: (string | undefined)[], symbolic: bo
 export async function loadRenderFont(doc: PdfDocument, o: PdfObj | undefined): Promise<RenderFont> {
   const base = await loadFont(doc, o);
   const d = await doc.resolve(o);
+  const symbols = d instanceof PdfDict ? await symbolText(doc, d, nameOf(await doc.resolve(d.get('BaseFont'))) ?? '', base.text) : undefined;
   const fallback = (name = '', flags = 0, weight?: number): RenderFont => ({
     ...base,
     matrix: [0.001, 0, 0, 0.001, 0, 0],
-    system: { css: systemFont(name, flags, weight), text: base.text, widths: new Map() },
+    system: { css: systemFont(name, flags, weight), text: symbols ?? base.text, widths: new Map() },
   });
   if (!(d instanceof PdfDict)) return fallback();
   try {

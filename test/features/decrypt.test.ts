@@ -550,7 +550,7 @@ describe.skipIf(!hasQpdf)('qpdf-encrypted documents', () => {
 // /Identity, a /Crypt stream filter), an indirect /Length. Encrypted with node:crypto.
 
 /** Build the document; with `enc`, add /Encrypt and RC4-encrypt the stream data (V4, StdCF). */
-function handmade(enc?: { o: string; u: string; p: number; key: Buffer }): { bytes: Uint8Array; compressedCatalog: boolean } {
+function handmade(enc?: { o: string; u: string; p: number; key: Buffer; cf?: string }): { bytes: Uint8Array; compressedCatalog: boolean } {
   const b = new DocBuilder();
   const img = b.stream(
     imageDict({
@@ -574,7 +574,7 @@ function handmade(enc?: { o: string; u: string; p: number; key: Buffer }): { byt
   if (enc) {
     const e = b.obj(
       `<< /Filter /Standard /V 4 /R 4 /Length 128 /P ${enc.p} /O <${enc.o}> /U <${enc.u}> ` +
-        '/CF << /StdCF << /CFM /V2 /Length 16 /AuthEvent /DocOpen >> >> /StmF /StdCF /StrF /Identity /EFF /Identity >>',
+        `/CF << /StdCF << /CFM /V2 ${enc.cf ?? '/Length 16'} /AuthEvent /DocOpen >> >> /StmF /StdCF /StrF /Identity /EFF /Identity >>`,
       { compressible: false },
     );
     b.trailer('Encrypt', `${e} 0 R`);
@@ -589,7 +589,10 @@ function handmade(enc?: { o: string; u: string; p: number; key: Buffer }): { byt
       if (at < 0 || /\/Type \/XRef|\/Crypt|\/EmbeddedFile/.test(s.slice(0, at))) continue;
       const start = o.offset + at + 7;
       const end = o.offset + s.lastIndexOf('\nendstream');
-      const k = createHash('md5').update(Buffer.concat([enc.key, Buffer.from([num, num >> 8, num >> 16, o.gen, o.gen >> 8])])).digest();
+      const k = createHash('md5')
+        .update(Buffer.concat([enc.key, Buffer.from([num, num >> 8, num >> 16, o.gen, o.gen >> 8])]))
+        .digest()
+        .subarray(0, Math.min(enc.key.length + 5, 16));
       out.set(createCipheriv('rc4', k, null).update(out.subarray(start, end)), start);
     }
   }
@@ -642,6 +645,35 @@ describe.skipIf(!hasQpdf)('catalog in an encrypted object stream, with crypt fil
     await expect(openEncryptedPdf(new BytesSource(enc.bytes), { password: 'x' })).rejects.toBeInstanceOf(PdfPasswordError);
     expect(await checkPassword(doc, 'secret')).toBe('owner');
   });
+});
+
+/** /O, /U and the file key for R4 RC4 with an empty user password (Algorithms 2, 3 and 5), key of `n` bytes. */
+function r4Params(n: number, owner: string, p: number, id: Buffer) {
+  const PAD32 = Buffer.from('28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a', 'hex');
+  const pad = (pw: string) => Buffer.concat([Buffer.from(pw, 'latin1'), PAD32]).subarray(0, 32);
+  const md = (b: Buffer) => createHash('md5').update(b).digest();
+  const rc = (k: Buffer, b: Buffer) => createCipheriv('rc4', k, null).update(b);
+  const xor = (k: Buffer, i: number) => Buffer.from(k.map((b) => b ^ i));
+  let h = md(pad(owner));
+  for (let i = 0; i < 50; i++) h = md(h.subarray(0, n));
+  let o = rc(h.subarray(0, n), pad(''));
+  for (let i = 1; i <= 19; i++) o = rc(xor(h.subarray(0, n), i), o);
+  const pb = Buffer.alloc(4);
+  pb.writeInt32LE(p);
+  let k = md(Buffer.concat([pad(''), o, pb, id]));
+  for (let i = 0; i < 50; i++) k = md(k.subarray(0, n));
+  const key = k.subarray(0, n);
+  let u = rc(key, md(Buffer.concat([PAD32, id])));
+  for (let i = 1; i <= 19; i++) u = rc(xor(key, i), u);
+  return { o: o.toString('hex'), u: Buffer.concat([u, Buffer.alloc(16)]).toString('hex'), p, key };
+}
+
+test('V4 with an RC4 key length given in bytes in the crypt filter (/Length 5: 40 bits)', async () => {
+  const id = Buffer.from('handmade'.padEnd(16, '.'), 'latin1');
+  const enc = handmade({ ...r4Params(5, 'owner', -4, id), cf: '/Length 5' });
+  const { report, out } = await run(enc.bytes);
+  expect(report).toMatchObject({ encrypted: true, method: 'RC4 40-bit (R4)', password: 'user' });
+  expectSameRendering(render(out), render(handmade().bytes));
 });
 
 // ---------------------------------------------------------------------------------------------

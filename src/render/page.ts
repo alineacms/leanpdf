@@ -39,7 +39,8 @@ export interface RenderResult {
 const MAX_CONTENT = 128 << 20;
 /** Browsers cap canvas size; stay well within it. */
 const MAX_SIDE = 16384;
-const MAX_AREA = 1 << 27;
+// iOS Safari refuses canvases over 16.7 megapixels.
+const MAX_AREA = 1 << 24;
 
 /** Fonts and decoded images per document, kept across renders. */
 const caches = new WeakMap<PdfDocument, { fonts: Map<number, Promise<RenderFont>>; images: ImageCache }>();

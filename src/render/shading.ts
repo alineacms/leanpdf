@@ -64,7 +64,24 @@ const LUT = 1024;
 type Rgb = [number, number, number];
 
 /** Load a shading dictionary or stream (types 1-7). `colorSpaces` is the resource /ColorSpace dictionary. Undefined when unusable. */
-export async function loadShading(doc: PdfDocument, o: PdfObj | undefined, colorSpaces?: PdfDict): Promise<ShadingPaint | undefined> {
+/** Shadings by object number, per document (or per /ColorSpace resources, which /Default spaces come from). */
+const loaded = /* @__PURE__ */ new WeakMap<PdfDocument | PdfDict, Map<number, Promise<ShadingPaint | undefined>>>();
+
+export function loadShading(doc: PdfDocument, o: PdfObj | undefined, colorSpaces?: PdfDict): Promise<ShadingPaint | undefined> {
+  if (!(o instanceof PdfRef)) return build(doc, o, colorSpaces);
+  const owner = colorSpaces ?? doc;
+  let m = loaded.get(owner);
+  if (!m) loaded.set(owner, (m = new Map()));
+  let s = m.get(o.num);
+  if (!s) {
+    m.set(o.num, (s = build(doc, o, colorSpaces)));
+    // A read error isn't kept.
+    s.catch(() => m.delete(o.num));
+  }
+  return s;
+}
+
+async function build(doc: PdfDocument, o: PdfObj | undefined, colorSpaces?: PdfDict): Promise<ShadingPaint | undefined> {
   const d = await doc.resolve(o);
   if (!(d instanceof PdfDict)) return undefined;
   const get = (k: string) => doc.resolve(d.get(k));

@@ -158,6 +158,31 @@ describe.skipIf(!!skip)('renderPage vs MuPDF', () => {
     expect((await session!.ours(pdf)).warnings).toEqual([]);
   });
 
+  test('rotated rectangles with shading patterns; ZapfDingbats and Symbol without embedding', async () => {
+    const b = new DocBuilder();
+    const fn = b.obj('<< /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >>');
+    const pat = b.obj(`<< /Type /Pattern /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Function ${fn} 0 R /Coords [0 0 1 0] /Extend [true true] >> /Matrix [600 0 0 400 0 0] >>`);
+    const zapf = b.obj('<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats >>');
+    const suits = b.obj('<< /Type /Font /Subtype /Type1 /BaseFont /ZapfDingbats /Encoding << /Differences [1 /a109 /a110] >> >>');
+    const content = [
+      'q 0.7071 0.7071 -0.7071 0.7071 150 150 cm /Pattern cs /P scn 0 0 100 100 re f Q',
+      'BT /Z 60 Tf 350 250 Td (4) Tj /S 60 Tf 80 0 Td <0102> Tj ET',
+    ].join('\n');
+    b.page({ width: 600, height: 400, content, resources: ` /Pattern << /P ${pat} 0 R >> /Font << /Z ${zapf} 0 R /S ${suits} 0 R >>` });
+    const pdf = b.finish().build().bytes;
+    const ours = await check('rotated-dingbats', pdf, { mae: 6, bad: 0.03 });
+    // The rotated square is filled (its corners reach past the two that were once its box).
+    expect(near(pixel(ours, 150, 400 - 220), [255, 255, 255], 30)).toBe(false);
+    // The check mark and the suits are drawn, not left out as untranslatable codes.
+    const inked = (x0: number, y0: number, x1: number, y1: number) => {
+      let n = 0;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (pixel(ours, x, y)[0] < 128) n++;
+      return n;
+    };
+    expect(inked(350, 400 - 310, 420, 400 - 245)).toBeGreaterThan(100);
+    expect(inked(430, 400 - 310, 560, 400 - 245)).toBeGreaterThan(100);
+  });
+
   test('text: fonts that are not embedded', async () => {
     const b = new DocBuilder();
     const fonts = ['Helvetica', 'Times-Roman', 'Courier', 'Helvetica-Bold'].map((f) => b.obj(`<< /Type /Font /Subtype /Type1 /BaseFont /${f} /Encoding /WinAnsiEncoding >>`));

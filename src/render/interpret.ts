@@ -1125,7 +1125,10 @@ export class Interpreter {
         const [x, y, w, h] = [num(4), num(3), num(2), num(1)];
         if (Number.isNaN(x + y + w + h)) return;
         this.path.rect(x, y, w, h);
+        // All four corners: under a rotation two opposite ones don't bound the rest.
         this.point(x, y);
+        this.point(x + w, y);
+        this.point(x, y + h);
         this.point(x + w, y + h);
         this.cx = x;
         this.cy = y;
