@@ -40,5 +40,5 @@ jobs:
       - name: Compress a generated PDF with the built CLI under Node ${{ matrix.node }}
         run: |
           bun scripts/smoke-fixture.ts smoke.pdf
-          node dist/cli.js smoke.pdf smoke.out.pdf
+          node dist/cli.js compress smoke.pdf smoke.out.pdf
           qpdf --check smoke.out.pdf

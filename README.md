@@ -1,8 +1,8 @@
-# pdf-squeeze
+# leanpdf
 
-A small, low-memory PDF compressor for browsers, Node and Bun. It makes PDFs smaller by
-**recompressing and downscaling their embedded raster images**, and copies everything else
-byte for byte.
+A small, low-memory, streaming PDF library for browsers, Node and Bun. It currently does one job:
+it makes PDFs smaller by **recompressing and downscaling their embedded raster images**, and
+copies everything else byte for byte.
 
 - **Streams.** The input is read with bounded random access, and the output is written in one
   forward pass. Peak memory is roughly one decoded image plus the cross-reference index, whatever
@@ -22,7 +22,7 @@ byte for byte.
 ## Install
 
 ```sh
-npm install pdf-squeeze          # or: bun add pdf-squeeze
+npm install leanpdf          # or: bun add leanpdf
 npm install sharp                 # only for the server codec / CLI
 ```
 
@@ -34,7 +34,7 @@ sharp's own requirements (sharp 0.35 needs Node 20.9+).
 ### Browser
 
 ```ts
-import { compressPdfBlob } from 'pdf-squeeze';
+import { compressPdfBlob } from 'leanpdf';
 
 const { blob, report } = await compressPdfBlob(file, { maxWidth: 1600, maxHeight: 1600, jpegQuality: 0.75 });
 ```
@@ -48,7 +48,7 @@ To stream straight to disk (for example with the File System Access API), use `c
 `WritableStreamSink`:
 
 ```ts
-import { compressPdf, BlobSource, WritableStreamSink, BrowserImageCodec } from 'pdf-squeeze';
+import { compressPdf, BlobSource, WritableStreamSink, BrowserImageCodec } from 'leanpdf';
 
 const handle = await showSaveFilePicker({ suggestedName: 'compressed.pdf' });
 const report = await compressPdf(new BlobSource(file), new WritableStreamSink(await handle.createWritable()), {
@@ -60,8 +60,8 @@ const report = await compressPdf(new BlobSource(file), new WritableStreamSink(aw
 ### Node and Bun
 
 ```ts
-import { compressPdfFile } from 'pdf-squeeze/node';
-import { SharpImageCodec } from 'pdf-squeeze/sharp';
+import { compressPdfFile } from 'leanpdf/node';
+import { SharpImageCodec } from 'leanpdf/sharp';
 
 const report = await compressPdfFile('in.pdf', 'out.pdf', { codec: new SharpImageCodec(), maxWidth: 2000, maxHeight: 2000 });
 ```
@@ -74,7 +74,7 @@ destinations, combine `NodeFileSource` with any `OutputSink`, for example
 ### CLI
 
 ```sh
-pdf-squeeze in.pdf out.pdf --max 1600 --quality 0.75
+leanpdf compress in.pdf out.pdf --max 1600 --quality 0.75
 ```
 
 | Option | Default | |
@@ -89,7 +89,7 @@ pdf-squeeze in.pdf out.pdf --max 1600 --quality 0.75
 | `--progressive` | | Write progressive JPEGs |
 | `--json` | | Print the report (plus time and peak RSS) as JSON |
 
-The CLI uses sharp. In this repository you can run it with `bun src/cli.ts`; the built
+The CLI uses sharp. In this repository you can run it with `bun src/cli.ts compress …`; the built
 `dist/cli.js` runs on Node.
 
 ## API
@@ -132,9 +132,9 @@ signal's reason when aborted. All extend `PdfError` except the last two.
 
 | Import | Contents |
 |---|---|
-| `pdf-squeeze` | `compressPdf`, `compressPdfBlob`, `BlobSource`, `BlobPartsSink`, `WritableStreamSink`, `BrowserImageCodec`, types, errors |
-| `pdf-squeeze/node` | `NodeFileSource`, `NodeFileSink`, `compressPdfFile` |
-| `pdf-squeeze/sharp` | `SharpImageCodec` (the only module that imports `sharp`) |
+| `leanpdf` | `compressPdf`, `compressPdfBlob`, `BlobSource`, `BlobPartsSink`, `WritableStreamSink`, `BrowserImageCodec`, types, errors |
+| `leanpdf/node` | `NodeFileSource`, `NodeFileSink`, `compressPdfFile` |
+| `leanpdf/sharp` | `SharpImageCodec` (the only module that imports `sharp`) |
 
 ### I/O
 

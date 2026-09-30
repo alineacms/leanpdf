@@ -1,5 +1,5 @@
 // Baseline: the usual pdf-lib approach. Load the whole document into pdf-lib's object model,
-// recompress image streams with sharp (same limits as pdf-squeeze: 1600 px, q75, keep only if
+// recompress image streams with sharp (same limits as leanpdf: 1600 px, q75, keep only if
 // <= 90% of the original), then serialize the whole document with doc.save().
 import { readFile, writeFile } from 'node:fs/promises';
 import { decodePDFRawStream, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef } from 'pdf-lib';

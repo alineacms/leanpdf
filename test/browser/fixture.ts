@@ -129,7 +129,7 @@ export async function buildFixturePdf(): Promise<FixturePdf> {
   );
   const c1 = enc.encode('q 540 0 0 405 36 360 cm /Im1 Do Q\nq 300 0 0 200 36 100 cm /Im2 Do Q\n');
   b.obj(6, `<< /Length ${c1.length} >>`, c1);
-  b.obj(7, '<< /Title (pdf-squeeze browser fixture) /Producer (test/browser/fixture.ts) >>');
+  b.obj(7, '<< /Title (leanpdf browser fixture) /Producer (test/browser/fixture.ts) >>');
   b.obj(8, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im3 9 0 R /Im4 10 0 R >> >> /Contents 11 0 R >>');
   b.obj(9, `<< /Type /XObject /Subtype /Image /Width 1200 /Height 1600 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length ${flateGray.length} >>`, flateGray);
   b.obj(10, `<< /Type /XObject /Subtype /Image /Width 64 /Height 64 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${flateSmall.length} >>`, flateSmall);

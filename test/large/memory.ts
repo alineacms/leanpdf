@@ -115,7 +115,7 @@ interface Result {
 
 function runCli(runtime: 'bun' | 'node'): Result {
   const out = `${dir}/large-out-${runtime}.pdf`;
-  const r = spawnSync(runtime, [`${root}src/cli.ts`, input, out, '--json'], { encoding: 'utf8', maxBuffer: 16 << 20 });
+  const r = spawnSync(runtime, [`${root}src/cli.ts`, 'compress', input, out, '--json'], { encoding: 'utf8', maxBuffer: 16 << 20 });
   if (r.status !== 0) throw new Error(`${runtime} CLI failed:\n${r.stderr}`);
   const rep = JSON.parse(r.stdout);
   console.log(`  ${runtime}: ${qpdfCheck(out)}; ${rep.imagesRecompressed}/${rep.imagesSeen} images recompressed`);

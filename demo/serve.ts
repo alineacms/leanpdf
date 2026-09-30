@@ -58,5 +58,5 @@ export function startDemoServer(opts: { port?: number; hostname?: string } = {})
 
 if (import.meta.main) {
   const s = startDemoServer();
-  console.log(`pdf-squeeze demo: ${s.url}`);
+  console.log(`leanpdf demo: ${s.url}`);
 }

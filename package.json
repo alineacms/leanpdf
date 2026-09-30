@@ -1,7 +1,7 @@
 {
-  "name": "pdf-squeeze",
+  "name": "leanpdf",
   "version": "0.1.0",
-  "description": "Small, low-memory PDF image compressor for browsers and Node. Streams the file, recompresses embedded images, copies everything else byte for byte.",
+  "description": "Small, low-memory, streaming PDF toolkit for browsers, Node and Bun. First tool: shrink PDFs by recompressing their images, copying everything else byte for byte.",
   "keywords": [
     "pdf",
     "compress",
@@ -41,7 +41,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "pdf-squeeze": "./dist/cli.js"
+    "leanpdf": "./dist/cli.js"
   },
   "engines": {
     "node": ">=18.17"

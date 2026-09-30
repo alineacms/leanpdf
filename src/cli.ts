@@ -3,11 +3,12 @@ import { parseArgs } from 'node:util';
 import { SharpImageCodec } from './codecs/sharp.ts';
 import { compressPdfFile } from './io/node.ts';
 
-const USAGE = `Usage: pdf-squeeze <in.pdf> <out.pdf> [options]
+const USAGE = `Usage: leanpdf <command> [options]
 
-Recompresses and downscales the raster images in a PDF.
+Commands:
+  compress <in.pdf> <out.pdf>   Recompress and downscale the raster images in a PDF
 
-Options:
+Compress options:
   --max <px>           Max image width and height (default 1600)
   --max-width <px>     Max image width
   --max-height <px>    Max image height
@@ -48,11 +49,15 @@ async function main(): Promise<number> {
       help: { type: 'boolean', short: 'h' },
     },
   });
-  if (values.help || positionals.length !== 2) {
-    (values.help ? console.log : console.error)(USAGE);
-    return values.help ? 0 : 2;
+  const [command, input, output, ...rest] = positionals;
+  if (values.help) {
+    console.log(USAGE);
+    return 0;
   }
-  const [input, output] = positionals;
+  if (command !== 'compress' || !input || !output || rest.length) {
+    console.error(command && command !== 'compress' ? `leanpdf: unknown command "${command}"\n\n${USAGE}` : USAGE);
+    return 2;
+  }
   const max = num(values.max, 'max');
   const showProgress = !values.quiet && !values.json && process.stderr.isTTY;
   const started = performance.now();
@@ -89,7 +94,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (e: unknown) => {
-    console.error(`pdf-squeeze: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`leanpdf: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(1);
   },
 );
