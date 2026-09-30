@@ -17,10 +17,12 @@ export class OutputWriter {
   private fill = 0;
   private copyOff = -1;
   private copyLen = 0;
+  private copySrc: RandomAccessSource;
 
   constructor(sink: OutputSink, source: RandomAccessSource) {
     this.sink = sink;
     this.source = source;
+    this.copySrc = source;
   }
 
   async write(b: Uint8Array | string): Promise<void> {
@@ -38,15 +40,17 @@ export class OutputWriter {
     this.pos += b.length;
   }
 
-  async copy(offset: number, length: number): Promise<void> {
+  /** Copy a range of `source` (default: the writer's source). Adjacent ranges of one source merge. */
+  async copy(offset: number, length: number, source: RandomAccessSource = this.source): Promise<void> {
     if (length <= 0) return;
-    if (this.copyOff >= 0 && this.copyOff + this.copyLen === offset) {
+    if (this.copyOff >= 0 && this.copySrc === source && this.copyOff + this.copyLen === offset) {
       this.copyLen += length;
     } else {
       await this.flushCopy();
       await this.flushBuf();
       this.copyOff = offset;
       this.copyLen = length;
+      this.copySrc = source;
     }
     this.pos += length;
   }
@@ -62,7 +66,7 @@ export class OutputWriter {
     if (this.copyOff < 0) return;
     const off = this.copyOff;
     this.copyOff = -1;
-    await this.sink.copyRange(this.source, off, this.copyLen);
+    await this.sink.copyRange(this.copySrc, off, this.copyLen);
   }
 
   async flush(): Promise<void> {

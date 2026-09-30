@@ -12,6 +12,28 @@ export { PdfDict, PdfName, PdfRef, PdfString, type PdfObj } from './core/objects
 export { PdfEncryptedError, PdfError, PdfFormatError, SourceReadError } from './core/errors.ts';
 export { BlobPartsSink, BlobSource, WritableStreamSink } from './io/blob.ts';
 export { BrowserImageCodec } from './codecs/browser.ts';
+
+// Reading (take a PdfDocument from openPdf)
+export { getInfo, getPages, parsePdfDate, type DocumentInfo, type PageInfo } from './features/info.ts';
+export { getLinks, getOutline, type LinkInfo, type OutlineItem } from './features/outline.ts';
+export { getFormFields, type FieldType, type FormField } from './features/forms.ts';
+export { attachmentStream, listAttachments, readAttachment, type Attachment, type AttachmentHandle } from './features/attachments.ts';
+export { extractImage, listImages, type ExtractedImage, type ImageInfo } from './features/images.ts';
+export { extractAllText, extractText, type PageText, type TextOptions } from './features/text.ts';
+
+// Rewrite plugins (combine any of them in one rewritePdf pass)
+export { removeUnused } from './features/unused.ts';
+export { removeAttachments, removeJavaScript, stripMetadata, type StripMetadataOptions } from './features/strip.ts';
+export { rotatePages } from './features/rotate.ts';
+export { selectPages } from './features/pages-select.ts';
+export { recompressStreams, type RecompressStreamsOptions, type StreamsReport } from './features/streams.ts';
+export { repairPdf, repairStreams } from './features/repair.ts';
+
+// Whole-file operations
+export { mergePdfs, type MergeOptions, type MergeProgress, type MergeReport } from './features/merge.ts';
+export {
+  checkPassword, decrypt, decryptPdf, isEncrypted, openEncryptedPdf, PdfPasswordError, type DecryptOptions, type DecryptReport,
+} from './features/decrypt.ts';
 export { fitInside } from './core/resize.ts';
 
 /**

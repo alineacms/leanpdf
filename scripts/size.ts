@@ -9,7 +9,15 @@ const lib = new URL('../src/index.ts', import.meta.url).pathname;
 const SCENARIOS: { name: string; imports: string; budget?: number }[] = [
   { name: 'compressPdfBlob (core + Blob I/O + browser codec)', imports: 'compressPdfBlob', budget: 50 * KB },
   { name: 'openPdf', imports: 'openPdf' },
+  { name: 'openPdf + getInfo', imports: 'openPdf, getInfo' },
+  { name: 'openPdf + outline, links, forms', imports: 'openPdf, getOutline, getLinks, getFormFields' },
+  { name: 'openPdf + attachments', imports: 'openPdf, listAttachments, attachmentStream' },
+  { name: 'openPdf + images', imports: 'openPdf, listImages, extractImage' },
+  { name: 'openPdf + extractText', imports: 'openPdf, extractText' },
   { name: 'rewritePdf (no plugins)', imports: 'rewritePdf' },
+  { name: 'rewritePdf + all edit plugins', imports: 'rewritePdf, removeUnused, stripMetadata, removeJavaScript, removeAttachments, rotatePages, selectPages, recompressStreams, repairStreams' },
+  { name: 'mergePdfs', imports: 'mergePdfs' },
+  { name: 'decryptPdf', imports: 'decryptPdf' },
   { name: 'everything', imports: '*' },
 ];
 
