@@ -164,8 +164,9 @@ const hexVal = (c: number): number =>
   c >= 48 && c <= 57 ? c - 48 : c >= 65 && c <= 70 ? c - 55 : c >= 97 && c <= 102 ? c - 87 : -1;
 
 function decodeName(b: Uint8Array, s: number, e: number): string {
-  const hash = b.indexOf(0x23, s);
-  if (hash < 0 || hash >= e) return latin1(b, s, e);
+  let hash = s;
+  while (hash < e && b[hash] !== 0x23) hash++;
+  if (hash >= e) return latin1(b, s, e);
   let out = '';
   for (let i = s; i < e; i++) {
     const c = b[i];
