@@ -1,9 +1,25 @@
 {
-  "name": "pdf-compress",
+  "name": "pdf-squeeze",
   "version": "0.1.0",
   "description": "Small, low-memory PDF image compressor for browsers and Node. Streams the file, recompresses embedded images, copies everything else byte for byte.",
-  "type": "module",
+  "keywords": [
+    "pdf",
+    "compress",
+    "compression",
+    "image",
+    "jpeg",
+    "downscale",
+    "streaming",
+    "browser",
+    "sharp",
+    "low-memory"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benmerckx/pdf-compress.git"
+  },
   "license": "MIT",
+  "type": "module",
   "sideEffects": false,
   "files": [
     "dist",
@@ -25,7 +41,7 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "compress-pdf": "./dist/cli.js"
+    "pdf-squeeze": "./dist/cli.js"
   },
   "engines": {
     "node": ">=18.17"
@@ -37,7 +53,8 @@
     "size": "bun scripts/size.ts",
     "demo": "bun demo/serve.ts",
     "cli": "bun src/cli.ts",
-    "test:large": "bun test/large/memory.ts"
+    "test:large": "bun test/large/memory.ts",
+    "prepublishOnly": "bun run typecheck && bun run size && bun run build"
   },
   "peerDependencies": {
     "sharp": ">=0.34.0"
@@ -46,6 +63,10 @@
     "sharp": {
       "optional": true
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

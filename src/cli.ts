@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util';
 import { SharpImageCodec } from './codecs/sharp.ts';
 import { compressPdfFile } from './io/node.ts';
 
-const USAGE = `Usage: compress-pdf <in.pdf> <out.pdf> [options]
+const USAGE = `Usage: pdf-squeeze <in.pdf> <out.pdf> [options]
 
 Recompresses and downscales the raster images in a PDF.
 
@@ -89,7 +89,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (e: unknown) => {
-    console.error(`compress-pdf: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(`pdf-squeeze: ${e instanceof Error ? e.message : String(e)}`);
     process.exit(1);
   },
 );

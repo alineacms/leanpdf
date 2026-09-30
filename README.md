@@ -1,4 +1,4 @@
-# pdf-compress
+# pdf-squeeze
 
 A small, low-memory PDF compressor for browsers, Node and Bun. It makes PDFs smaller by
 **recompressing and downscaling their embedded raster images**, and copies everything else
@@ -22,7 +22,7 @@ byte for byte.
 ## Install
 
 ```sh
-npm install pdf-compress          # or: bun add pdf-compress
+npm install pdf-squeeze          # or: bun add pdf-squeeze
 npm install sharp                 # only for the server codec / CLI
 ```
 
@@ -34,7 +34,7 @@ sharp's own requirements (sharp 0.35 needs Node 20.9+).
 ### Browser
 
 ```ts
-import { compressPdfBlob } from 'pdf-compress';
+import { compressPdfBlob } from 'pdf-squeeze';
 
 const { blob, report } = await compressPdfBlob(file, { maxWidth: 1600, maxHeight: 1600, jpegQuality: 0.75 });
 ```
@@ -48,7 +48,7 @@ To stream straight to disk (for example with the File System Access API), use `c
 `WritableStreamSink`:
 
 ```ts
-import { compressPdf, BlobSource, WritableStreamSink, BrowserImageCodec } from 'pdf-compress';
+import { compressPdf, BlobSource, WritableStreamSink, BrowserImageCodec } from 'pdf-squeeze';
 
 const handle = await showSaveFilePicker({ suggestedName: 'compressed.pdf' });
 const report = await compressPdf(new BlobSource(file), new WritableStreamSink(await handle.createWritable()), {
@@ -60,8 +60,8 @@ const report = await compressPdf(new BlobSource(file), new WritableStreamSink(aw
 ### Node and Bun
 
 ```ts
-import { compressPdfFile } from 'pdf-compress/node';
-import { SharpImageCodec } from 'pdf-compress/sharp';
+import { compressPdfFile } from 'pdf-squeeze/node';
+import { SharpImageCodec } from 'pdf-squeeze/sharp';
 
 const report = await compressPdfFile('in.pdf', 'out.pdf', { codec: new SharpImageCodec(), maxWidth: 2000, maxHeight: 2000 });
 ```
@@ -74,7 +74,7 @@ destinations, combine `NodeFileSource` with any `OutputSink`, for example
 ### CLI
 
 ```sh
-compress-pdf in.pdf out.pdf --max 1600 --quality 0.75
+pdf-squeeze in.pdf out.pdf --max 1600 --quality 0.75
 ```
 
 | Option | Default | |
@@ -132,9 +132,9 @@ signal's reason when aborted. All extend `PdfError` except the last two.
 
 | Import | Contents |
 |---|---|
-| `pdf-compress` | `compressPdf`, `compressPdfBlob`, `BlobSource`, `BlobPartsSink`, `WritableStreamSink`, `BrowserImageCodec`, types, errors |
-| `pdf-compress/node` | `NodeFileSource`, `NodeFileSink`, `compressPdfFile` |
-| `pdf-compress/sharp` | `SharpImageCodec` (the only module that imports `sharp`) |
+| `pdf-squeeze` | `compressPdf`, `compressPdfBlob`, `BlobSource`, `BlobPartsSink`, `WritableStreamSink`, `BrowserImageCodec`, types, errors |
+| `pdf-squeeze/node` | `NodeFileSource`, `NodeFileSink`, `compressPdfFile` |
+| `pdf-squeeze/sharp` | `SharpImageCodec` (the only module that imports `sharp`) |
 
 ### I/O
 
@@ -286,3 +286,10 @@ bun bench/run.ts             # benchmarks (bun install --cwd bench first)
 
 The browser tests drive headless Chromium through `playwright-core`; set `CHROMIUM_PATH` or run
 `bunx playwright-core install chromium`. `qpdf` must be on the `PATH` for the validation tests.
+
+### Releasing
+
+`.github/workflows/publish.yml` publishes to npm (with provenance) when a GitHub release is
+published. The tag must be `v` + the `package.json` version. It runs the full test suite and the
+size budget first. It needs an `NPM_TOKEN` repository secret. It can also be run by hand, as a
+dry run by default.

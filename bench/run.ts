@@ -1,8 +1,8 @@
 /**
- * Benchmark pdf-compress against other JavaScript PDF compressors (plus native references).
+ * Benchmark pdf-squeeze against other JavaScript PDF compressors (plus native references).
  *
  *   bun install --cwd bench && bun run build   # once
- *   bun bench/run.ts [--files brochure.pdf,scan.pdf] [--tools pdf-compress-node,pdflib]
+ *   bun bench/run.ts [--files brochure.pdf,scan.pdf] [--tools pdf-squeeze-node,pdflib]
  *
  * Every tool runs in its own process; CPU time and peak RSS come from the kernel's rusage for
  * that process. Outputs are checked with `qpdf --check`, and the first pages are rendered with
@@ -26,8 +26,8 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
-  { id: 'pdf-compress-node', label: '**pdf-compress** (Node, sharp)', js: true, argv: (i, o) => ['node', `${root}dist/cli.js`, i, o, '--quiet'] },
-  { id: 'pdf-compress-bun', label: '**pdf-compress** (Bun, sharp)', js: true, argv: (i, o) => ['bun', `${root}src/cli.ts`, i, o, '--quiet'] },
+  { id: 'pdf-squeeze-node', label: '**pdf-squeeze** (Node, sharp)', js: true, argv: (i, o) => ['node', `${root}dist/cli.js`, i, o, '--quiet'] },
+  { id: 'pdf-squeeze-bun', label: '**pdf-squeeze** (Bun, sharp)', js: true, argv: (i, o) => ['bun', `${root}src/cli.ts`, i, o, '--quiet'] },
   { id: 'pdflib', label: 'pdf-lib 1.17 + sharp (Node)', js: true, argv: (i, o) => ['node', `${bench}tools/pdflib-sharp.mjs`, i, o] },
   { id: 'gs-wasm', label: 'Ghostscript WASM, /ebook (Node)', js: true, argv: (i, o) => ['node', `${bench}tools/gs-wasm.mjs`, i, o] },
   { id: 'mupdf', label: 'MuPDF.js 1.28, lossless (Node)', js: true, argv: (i, o) => ['node', `${bench}tools/mupdf.mjs`, i, o] },
