@@ -2,8 +2,6 @@
 import { mkdir, open, rename, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import sharp from 'sharp';
-import { SharpImageCodec } from './codecs/sharp.ts';
 import type { PdfDocument } from './core/document.ts';
 import {
   attachmentStream, compressImages, decryptPdf, extractImage, extractText, getFormFields, getInfo, getLinks, getOutline, getPages,
@@ -170,6 +168,8 @@ async function main(): Promise<number> {
     case 'compress': {
       const [input, output] = need(2, '<in> <out>');
       const max = num(v.max, 'max');
+      // sharp takes about 100 ms to load: only the commands that need it import it.
+      const { SharpImageCodec } = await import('./codecs/sharp.ts');
       const images = compressImages({
         codec: new SharpImageCodec({ progressive: v.progressive }),
         maxWidth: num(v['max-width'], 'max-width') ?? max,
@@ -277,6 +277,7 @@ async function main(): Promise<number> {
         await mkdir(v.extract, { recursive: true });
         let saved = 0;
         let skipped = 0;
+        const sharp = (await import('sharp')).default;
         for (const im of images) {
           const x = await extractImage(doc, im.num);
           if (!x) {
