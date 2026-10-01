@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { sniffJpeg } from '../../src/core/jpeg.ts';
-import type { CompressReport, ProgressEvent } from '../../src/core/types.ts';
+import type { CompressReport, RewriteProgress } from '../../src/core/types.ts';
 import { compressPdfFile } from '../../src/node.ts';
 import { SharpImageCodec } from '../../src/sharp.ts';
 import { buildFixturePdf, type FixturePdf } from './fixture.ts';
@@ -131,7 +131,7 @@ describe('end to end in Bun: compressPdf + SharpImageCodec', () => {
 describe.skipIf(!browser)('end to end in Chromium: compressPdfBlob in a Web Worker', () => {
   type PageResult =
     | { ok: false; error: string }
-    | { ok: true; report: CompressReport; events: ProgressEvent[]; ms: number; blobType: string; size: number };
+    | { ok: true; report: CompressReport; events: RewriteProgress[]; ms: number; blobType: string; size: number };
   let r: PageResult;
   let outPath = '';
   let bytes: Uint8Array;
@@ -148,7 +148,7 @@ describe.skipIf(!browser)('end to end in Chromium: compressPdfBlob in a Web Work
       const res = await fetch('/input.pdf');
       const file = new File([await res.blob()], 'input.pdf', { type: 'application/pdf' });
       const w = new Worker('/e2e-worker.js', { type: 'module' });
-      type Msg = { ok: true; report: CompressReport; events: ProgressEvent[]; ms: number; blobType: string; buf: ArrayBuffer } | { ok: false; error: string };
+      type Msg = { ok: true; report: CompressReport; events: RewriteProgress[]; ms: number; blobType: string; buf: ArrayBuffer } | { ok: false; error: string };
       const msg = await new Promise<Msg>((resolve) => {
         w.onmessage = (e: MessageEvent<Msg>) => resolve(e.data);
         w.onerror = (e) => resolve({ ok: false, error: `worker error: ${e.message}` });

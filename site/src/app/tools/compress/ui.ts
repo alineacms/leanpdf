@@ -3,7 +3,7 @@
  * as a Blob (download link) or stream it to a file picked with showSaveFilePicker. The work
  * happens in the worker (./job.ts).
  */
-import type { CompressReport, ProgressEvent } from '../../../../../src/index.ts';
+import type { CompressReport, RewriteProgress } from '../../../../../src/index.ts';
 import { describeError, el, fmtBytes, fmtDuration, fmtInt, refs } from '../../format.ts';
 import type { Tool, ToolContext } from '../../tool.ts';
 import { download, minimize, save, upload } from '../../../pages/icons.ts';
@@ -146,7 +146,7 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
     ctx.announce(`Error: ${message}`);
   };
 
-  const onProgress = (p: ProgressEvent): void => {
+  const onProgress = (p: RewriteProgress): void => {
     ui.progress.max = Math.max(1, p.totalObjects);
     ui.progress.value = p.processedObjects;
     const pct = p.totalObjects ? Math.floor((p.processedObjects / p.totalObjects) * 100) : 0;

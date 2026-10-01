@@ -1,11 +1,11 @@
 /**
  * Compress job (runs in the worker):
- *  - with a FileSystemFileHandle: compressPdf + WritableStreamSink, streaming straight to disk
+ *  - with a FileSystemFileHandle: compressPdf into the file's WritableStream, straight to disk
  *    (the browser writes to a temporary file and only replaces the target on close; an abort
  *    discards it);
  *  - otherwise compressPdfBlob, whose Blob holds slices of the input for unchanged bytes.
  */
-import { BlobSource, BrowserImageCodec, compressPdf, compressPdfBlob, WritableStreamSink, type CompressReport, type ProgressEvent } from '../../../../../src/index.ts';
+import { BrowserImageCodec, compressPdf, compressPdfBlob, type CompressReport, type RewriteProgress } from '../../../../../src/index.ts';
 import { defineJob, type JobContext } from '../../protocol.ts';
 
 export interface CompressSettings {
@@ -28,12 +28,12 @@ export interface CompressOutput {
   savedTo?: string;
 }
 
-export const compressJob = defineJob(async (input: CompressInput, ctx: JobContext<ProgressEvent>): Promise<CompressOutput> => {
-  const options = { ...input.settings, signal: ctx.signal, onProgress: (p: ProgressEvent) => ctx.progress(p) };
+export const compressJob = defineJob(async (input: CompressInput, ctx: JobContext<RewriteProgress>): Promise<CompressOutput> => {
+  const options = { ...input.settings, signal: ctx.signal, onProgress: (p: RewriteProgress) => ctx.progress(p) };
   const t0 = performance.now();
   if (input.handle) {
     const writable = await input.handle.createWritable();
-    const report = await compressPdf(new BlobSource(input.file), new WritableStreamSink(writable), { ...options, codec: new BrowserImageCodec() });
+    const report = await compressPdf(input.file, writable, { ...options, codec: new BrowserImageCodec() });
     return { report, ms: performance.now() - t0, savedTo: input.handle.name };
   }
   const { blob, report } = await compressPdfBlob(input.file, options);

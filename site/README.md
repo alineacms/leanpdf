@@ -83,7 +83,7 @@ unused objects; compress streams; repair, all in one `rewritePdf` pass), **Merge
 bundles the whole library; the page script only has the UI.
 
 The Compress tool streams to disk when the browser has `showSaveFilePicker` (the worker gets the
-file handle and uses `compressPdf` with a `WritableStreamSink`), and otherwise builds a Blob with
+file handle and has `compressPdf` write into its `WritableStream`), and otherwise builds a Blob with
 `compressPdfBlob` and offers a download. Peak memory comes from
 `performance.measureUserAgentSpecificMemory()` (the page is cross-origin isolated), else
 `performance.memory`, else it says "unavailable".

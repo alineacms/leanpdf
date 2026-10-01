@@ -97,10 +97,7 @@ export class BlobPartsSink implements OutputSink {
   }
 }
 
-/**
- * Streams output into a WritableStream, e.g. from `FileSystemFileHandle.createWritable()` or
- * `Writable.toWeb(fs.createWriteStream(path))`. Honors backpressure.
- */
+/** Writes into a WritableStream, honoring backpressure: what a PdfOutput stream is wrapped in. */
 export class WritableStreamSink implements OutputSink {
   private readonly writer: WritableStreamDefaultWriter<Uint8Array>;
 

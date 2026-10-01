@@ -3,7 +3,7 @@ import { PdfEncryptedError } from '../core/errors.ts';
 import { intOf, PdfDict } from '../core/objects.ts';
 import { rewritePdf, type Plugin, type RewriteOptions, type RewriteReport } from '../core/rewrite.ts';
 import { dictString } from '../core/serialize.ts';
-import type { OutputSink, RandomAccessSource } from '../core/types.ts';
+import type { PdfInput, PdfOutput } from '../core/types.ts';
 
 const CHUNK = 256 * 1024;
 
@@ -66,9 +66,9 @@ export function repairStreams(): Plugin {
  * (`repairStreams`), incremental updates are collapsed, and one fresh, consistent
  * cross-reference section is written. Everything else is copied byte for byte; nothing is
  * dropped. `report.xrefRepaired` says whether the cross-reference data needed rebuilding,
- * `report.warnings` what was fixed. Encrypted input is rejected (PdfEncryptedError). The sink is
+ * `report.warnings` what was fixed. Encrypted input is rejected (PdfEncryptedError). The output is
  * closed on success and aborted on failure.
  */
-export function repairPdf(source: RandomAccessSource, sink: OutputSink, options?: RewriteOptions): Promise<RewriteReport> {
-  return rewritePdf(source, sink, [repairStreams()], options);
+export function repairPdf(input: PdfInput, output: PdfOutput, options?: RewriteOptions): Promise<RewriteReport> {
+  return rewritePdf(input, output, [repairStreams()], options);
 }

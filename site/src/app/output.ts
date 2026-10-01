@@ -4,7 +4,7 @@
  * close; an abort discards it); otherwise it becomes a Blob whose unchanged bytes are slices of
  * the input.
  */
-import { BlobPartsSink, WritableStreamSink, type OutputSink } from '../../../src/index.ts';
+import { BlobPartsSink, type PdfOutput } from '../../../src/index.ts';
 
 export interface Written {
   /** The result, when it was kept in memory. */
@@ -15,10 +15,10 @@ export interface Written {
 }
 
 /** Run `write` (which must close or abort the sink, as the library's functions do) to `handle` or to a Blob. */
-export async function writeOutput<R>(handle: FileSystemFileHandle | undefined, write: (sink: OutputSink) => Promise<R>): Promise<Written & { result: R }> {
+export async function writeOutput<R>(handle: FileSystemFileHandle | undefined, write: (output: PdfOutput) => Promise<R>): Promise<Written & { result: R }> {
   const t0 = performance.now();
   if (handle) {
-    const result = await write(new WritableStreamSink(await handle.createWritable()));
+    const result = await write(await handle.createWritable());
     return { result, savedTo: handle.name, ms: performance.now() - t0 };
   }
   const sink = new BlobPartsSink();

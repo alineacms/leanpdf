@@ -151,7 +151,7 @@ describe.skipIf(!browser)('site pages', () => {
     expect(h2).not.toContain('Benchmarks');
     expect(await page.locator('.prose a[href="/benchmarks/"]').count()).toBeGreaterThan(0);
     expect(h2[0]).toBe('Overview');
-    expect(await page.locator('#compresspdfsource-sink-options-promisecompressreport').count()).toBe(1);
+    expect(await page.locator('#compresspdfinput-output-options-promisecompressreport').count()).toBe(1);
     // Every table-of-contents link points at a heading on the page.
     const targets = await page.locator('.toc a').evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).hash.slice(1)));
     expect(targets.length).toBeGreaterThan(10);

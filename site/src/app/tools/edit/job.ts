@@ -3,8 +3,8 @@
  * pages, rotate, and clean up.
  */
 import {
-  BlobSource, recompressStreams, removeAttachments, removeJavaScript, removeUnused, repairStreams, rewritePdf, rotatePages, selectPages, stripMetadata,
-  type Plugin, type ProgressEvent, type RewriteReport,
+  recompressStreams, removeAttachments, removeJavaScript, removeUnused, repairStreams, rewritePdf, rotatePages, selectPages, stripMetadata,
+  type Plugin, type RewriteProgress, type RewriteReport,
 } from '../../../../../src/index.ts';
 import { writeOutput, type Written } from '../../output.ts';
 import { defineJob, type JobContext } from '../../protocol.ts';
@@ -28,7 +28,7 @@ export interface EditOutput extends Written {
   report: RewriteReport;
 }
 
-export const editJob = defineJob(async (input: EditInput, ctx: JobContext<ProgressEvent>): Promise<EditOutput> => {
+export const editJob = defineJob(async (input: EditInput, ctx: JobContext<RewriteProgress>): Promise<EditOutput> => {
   const plugins: Plugin[] = [];
   if (input.repairStreams) plugins.push(repairStreams());
   if (input.keep) plugins.push(selectPages(input.keep));
@@ -43,7 +43,7 @@ export const editJob = defineJob(async (input: EditInput, ctx: JobContext<Progre
   if (input.removeUnused) plugins.push(removeUnused());
   if (input.recompressStreams) plugins.push(recompressStreams());
   const out = await writeOutput(input.handle, (sink) =>
-    rewritePdf(new BlobSource(input.file), sink, plugins, { signal: ctx.signal, onProgress: (p) => ctx.progress(p) }),
+    rewritePdf(input.file, sink, plugins, { signal: ctx.signal, onProgress: (p) => ctx.progress(p) }),
   );
   const { result, ...written } = out;
   return { report: result, ...written };

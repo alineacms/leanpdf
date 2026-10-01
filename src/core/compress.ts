@@ -5,7 +5,8 @@ import { PdfDict, PdfRef } from './objects.ts';
 import type { ObjHeader } from './objread.ts';
 import { fitInside } from './resize.ts';
 import { rewritePdf, type Plugin, type RewriteContext } from './rewrite.ts';
-import type { CompressOptions, CompressReport, OutputSink, RandomAccessSource, RecompressOptions } from './types.ts';
+import { toSink } from './io.ts';
+import type { CompressOptions, CompressReport, PdfInput, PdfOutput, RecompressOptions } from './types.ts';
 
 type ImageResult = { parts: Uint8Array[]; saved: number } | { reason: string };
 
@@ -128,12 +129,13 @@ export function compressImages(options: CompressImagesOptions): Plugin & { repor
 }
 
 /**
- * Recompress the raster images of a PDF. Reads `source` with bounded random access and writes a
- * complete new file to `sink` in one forward pass; unchanged objects are copied byte for byte.
- * The sink is closed on success and aborted (if it supports it) on failure.
- * Equivalent to `rewritePdf(source, sink, [compressImages(options)], options)`.
+ * Recompress the raster images of a PDF. Reads `input` with bounded random access and writes a
+ * complete new file to `output` in one forward pass; unchanged objects are copied byte for byte.
+ * The output is closed on success and aborted (if it supports it) on failure.
+ * Equivalent to `rewritePdf(input, output, [compressImages(options)], options)`.
  */
-export async function compressPdf(source: RandomAccessSource, sink: OutputSink, options: CompressOptions): Promise<CompressReport> {
+export async function compressPdf(input: PdfInput, output: PdfOutput, options: CompressOptions): Promise<CompressReport> {
+  const sink = toSink(output);
   let images;
   try {
     images = compressImages(options);
@@ -141,6 +143,6 @@ export async function compressPdf(source: RandomAccessSource, sink: OutputSink, 
     await sink.abort?.(e).catch(() => {});
     throw e;
   }
-  const r = await rewritePdf(source, sink, [images], options);
+  const r = await rewritePdf(input, sink, [images], options);
   return { ...images.report, ...r };
 }

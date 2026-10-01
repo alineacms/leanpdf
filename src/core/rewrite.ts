@@ -5,7 +5,8 @@ import { nameOf, PdfDict, PdfRef, type PdfObj } from './objects.ts';
 import type { ObjHeader } from './objread.ts';
 import { SourceReader } from './reader.ts';
 import { dictString, serialize } from './serialize.ts';
-import type { OutputSink, ProgressEvent, RandomAccessSource } from './types.ts';
+import { toSink, toSource } from './io.ts';
+import type { OutputSink, PdfInput, PdfOutput, RandomAccessSource, RewriteProgress } from './types.ts';
 import { OutputWriter, writeXrefStream, writeXrefTable, type XrefEntryFn } from './writer.ts';
 import { E_COMPRESSED, E_FREE, E_OFFSET } from './xref.ts';
 
@@ -74,7 +75,7 @@ export interface RewriteOptions {
   signal?: AbortSignal;
   /** Replacement tasks (e.g. images) in flight at once. Default 1, which bounds memory. */
   concurrency?: number;
-  onProgress?: (e: ProgressEvent) => void;
+  onProgress?: (e: RewriteProgress) => void;
 }
 
 export interface RewriteReport {
@@ -113,16 +114,12 @@ function edited(d: PdfDict, e: Map<string, PdfObj | null>): PdfDict {
  * Rewrite a PDF in one forward pass: every live object in source order, copied byte for byte
  * unless a plugin changes it, then one fresh cross-reference section. Incremental updates
  * collapse; old xref streams and a stale linearization dictionary are dropped; object streams are
- * copied verbatim. The sink is closed on success and aborted (if it can be) on failure.
+ * copied verbatim. The output is closed on success and aborted (if it can be) on failure.
  */
-export async function rewritePdf(
-  input: RandomAccessSource | PdfDocument,
-  sink: OutputSink,
-  plugins: Plugin[] = [],
-  opts: RewriteOptions = {},
-): Promise<RewriteReport> {
+export async function rewritePdf(input: PdfInput | PdfDocument, output: PdfOutput, plugins: Plugin[] = [], opts: RewriteOptions = {}): Promise<RewriteReport> {
+  const sink = toSink(output);
   try {
-    const report = await run(input, sink, plugins, opts);
+    const report = await run(input instanceof PdfDocument ? input : toSource(input), sink, plugins, opts);
     await sink.close();
     return report;
   } catch (e) {

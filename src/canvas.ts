@@ -72,8 +72,8 @@ function aliasStandIns(): void {
 
 let ready = false;
 
-/** Make renderPage draw with @napi-rs/canvas. Done for you by the functions below. */
-export function useNapiCanvas(): void {
+/** Make the renderer draw with @napi-rs/canvas. */
+function useNapiCanvas(): void {
   if (ready) return;
   setCanvasBackend({
     createCanvas: (w, h) => createCanvas(w, h) as unknown as OffscreenCanvas,

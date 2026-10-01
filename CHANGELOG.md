@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+API cleanup before 1.0 (breaking):
+
+- Every function that reads a PDF takes a `PdfInput`: a Blob or File, the file's bytes, or a RandomAccessSource. compressPdf, rewritePdf, mergePdfs, decryptPdf, repairPdf and openEncryptedPdf took only some of these.
+- Every function that writes takes a `PdfOutput`: a WritableStream (wrapped for you) or an OutputSink. `WritableStreamSink` is gone: pass the stream itself. `BlobSource` is no longer exported: pass the Blob.
+- `ProgressEvent` is now `RewriteProgress`, so it no longer shadows the DOM's ProgressEvent type.
+- compressPdfBlob's options are optional.
+- leanpdf/canvas no longer exports `useNapiCanvas` (its functions set up the canvas themselves).
+
 ## 0.4.0
 
 Rendering now works in Node and Bun too, with @napi-rs/canvas as an optional dependency (like sharp for compressing), and the CLI gains a render command.

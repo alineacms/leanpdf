@@ -2,7 +2,7 @@
  * Memory-bound check on a large (> 500 MB) PDF. Not part of `bun test`; run with
  * `bun run test:large`. Generates the file once (streamed to disk), then compresses it
  *   1. with the CLI (NodeFileSource + NodeFileSink + SharpImageCodec) under Bun and Node, and
- *   2. through the Blob I/O path (BlobSource over a file-backed Blob -> WritableStreamSink),
+ *   2. through the Blob I/O path (a file-backed Blob in, a WritableStream out),
  * recording peak RSS for each, and validates the outputs with `qpdf --check`.
  *
  * Env: LARGE_PDF_MB (default 600), LARGE_PDF_DIR (default test/.corpus), MAX_RSS_MB (default 400).
@@ -126,20 +126,20 @@ function runCli(runtime: 'bun' | 'node'): Result {
 function runBlobPath(): Result {
   const out = `${dir}/large-out-blob.pdf`;
   const script = `
-    import { compressPdf, BlobSource, WritableStreamSink } from '${root}src/index.ts';
+    import { compressPdf } from '${root}src/index.ts';
     import { SharpImageCodec } from '${root}src/sharp.ts';
     import { createWriteStream } from 'node:fs';
     import { Writable } from 'node:stream';
     const t = performance.now();
-    const sink = new WritableStreamSink(Writable.toWeb(createWriteStream(${JSON.stringify(out)})));
-    const rep = await compressPdf(new BlobSource(Bun.file(${JSON.stringify(input)})), sink, { codec: new SharpImageCodec() });
+    const sink = Writable.toWeb(createWriteStream(${JSON.stringify(out)}));
+    const rep = await compressPdf(Bun.file(${JSON.stringify(input)}), sink, { codec: new SharpImageCodec() });
     console.log(JSON.stringify({ ...rep, seconds: (performance.now() - t) / 1000, peakRssBytes: process.resourceUsage().maxRSS * 1024 }));
   `;
   const r = spawnSync('bun', ['-e', script], { encoding: 'utf8', maxBuffer: 16 << 20, cwd: root });
   if (r.status !== 0) throw new Error(`blob path failed:\n${r.stderr}`);
   const rep = JSON.parse(r.stdout.trim().split('\n').at(-1)!);
   console.log(`  blob: ${qpdfCheck(out)}`);
-  return { label: 'Blob I/O (bun, BlobSource/WritableStreamSink)', seconds: rep.seconds, peakMb: rep.peakRssBytes / 1048576, outMb: rep.outputBytes / 1048576 };
+  return { label: 'Blob I/O (bun, Blob in, WritableStream out)', seconds: rep.seconds, peakMb: rep.peakRssBytes / 1048576, outMb: rep.outputBytes / 1048576 };
 }
 
 if (!existsSync(input)) await generate();

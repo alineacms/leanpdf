@@ -57,14 +57,13 @@ const { blob, report } = await compressPdfBlob(file, { maxWidth: 1600, maxHeight
 ```
 
 The result's unchanged parts are slices of the input, so they never enter JS memory. Run it in a
-Web Worker for large files. To stream straight to disk, use `compressPdf` with a
-`WritableStreamSink`:
+Web Worker for large files. To stream straight to disk, give `compressPdf` a WritableStream:
 
 ```ts
-import { compressPdf, BlobSource, WritableStreamSink, BrowserImageCodec } from 'leanpdf';
+import { compressPdf, BrowserImageCodec } from 'leanpdf';
 
 const handle = await showSaveFilePicker({ suggestedName: 'compressed.pdf' });
-const report = await compressPdf(new BlobSource(file), new WritableStreamSink(await handle.createWritable()), {
+const report = await compressPdf(file, await handle.createWritable(), {
   codec: new BrowserImageCodec(),
   onProgress: ({ processedObjects, totalObjects }) => console.log(processedObjects / totalObjects),
 });
@@ -195,18 +194,22 @@ fonts stand in for Helvetica, Times and Courier).
 
 ## Editing
 
-Every write goes through `rewritePdf`, which runs a list of plugins in one pass:
+Every write goes through `rewritePdf`, which runs a list of plugins in one pass. It reads any
+input (a File, bytes, ...) and writes to a WritableStream or a sink; for a Blob, pass a
+`BlobPartsSink` and read its `.blob` ([Inputs and outputs](#inputs-and-outputs)):
 
 ```ts
-import { rewritePdf, compressImages, stripMetadata, removeJavaScript, selectPages, removeUnused, BrowserImageCodec } from 'leanpdf';
+import { rewritePdf, BlobPartsSink, compressImages, stripMetadata, removeJavaScript, selectPages, removeUnused, BrowserImageCodec } from 'leanpdf';
 
-const report = await rewritePdf(source, sink, [
+const output = new BlobPartsSink();
+const report = await rewritePdf(file, output, [
   compressImages({ codec: new BrowserImageCodec() }),
   stripMetadata(),
   removeJavaScript(),
   selectPages([2, 0, 1]), // keep and reorder (0-based)
   removeUnused(),
 ]);
+const blob = output.blob;
 ```
 
 | Plugin | What it does |
@@ -228,7 +231,7 @@ To write your own, see the `Plugin` type and `src/features/rotate.ts`.
 ```ts
 import { mergePdfs } from 'leanpdf';
 
-const report = await mergePdfs([sourceA, sourceB], sink, { pages: [undefined, [0, 2]] });
+const report = await mergePdfs([fileA, fileB], output, { pages: [undefined, [0, 2]] }); // all of A, then B's pages 1 and 3
 ```
 
 Only the objects the selected pages need are copied. Bookmarks, form fields and layers are
@@ -239,7 +242,7 @@ merged; document JavaScript, attachments, structure tags and XMP are dropped.
 ```ts
 import { decryptPdf, PdfPasswordError } from 'leanpdf';
 
-const report = await decryptPdf(source, sink, { password: 'secret' }); // { method: 'AES-256 (R6)', password: 'user' }
+const report = await decryptPdf(file, output, { password: 'secret' }); // { method: 'AES-256 (R6)', password: 'user' }
 ```
 
 RC4 and AES-128/256 (revisions 2–6), with the user or owner password; the empty password is
@@ -270,9 +273,10 @@ Every command takes `--json` and `--quiet`.
 
 ## API
 
-### `compressPdf(source, sink, options): Promise<CompressReport>`
+### `compressPdf(input, output, options): Promise<CompressReport>`
 
-Writes a new PDF to `sink` and closes it, or aborts it on failure.
+Writes a new PDF to `output` and closes it, or aborts it on failure. `input` and `output` are as
+in [Inputs and outputs](#inputs-and-outputs).
 
 | Option | Default | |
 |---|---|---|
@@ -328,7 +332,22 @@ Decoders for images browsers can't decode (JPEG 2000, CMYK JPEG, fax; 30 KB) loa
 | `decryptPdf` | 43.8 KB | 17.4 KB |
 | everything | 221.5 KB | 88.5 KB |
 
-### I/O
+### Inputs and outputs
+
+Everything that reads a PDF takes a `PdfInput`: a Blob or File (read in pieces, never whole),
+the file's bytes (`Uint8Array` or `ArrayBuffer`), or any `RandomAccessSource`, such as
+`await NodeFileSource.open(path)` from `leanpdf/node`.
+
+Everything that writes takes a `PdfOutput`: a `WritableStream<Uint8Array>` (from
+`showSaveFilePicker`, `Writable.toWeb(fs.createWriteStream(path))`, a TransformStream, ...) or
+an `OutputSink`:
+
+- `new BlobPartsSink()` builds a Blob (read `.blob` afterwards). Unchanged ranges of a Blob input
+  stay slices of it, so they never enter JS memory.
+- `await NodeFileSink.create(path)` (from `leanpdf/node`) writes a file.
+
+The output is closed when the function succeeds and aborted when it fails. To read or write
+anything else, implement these:
 
 ```ts
 interface RandomAccessSource {
@@ -342,10 +361,6 @@ interface OutputSink {
   abort?(reason?: unknown): Promise<void>;
 }
 ```
-
-- `BlobSource(blob)`; `BlobPartsSink()` builds a Blob from parts and input slices (read `.blob`).
-- `WritableStreamSink(stream)` writes to a `WritableStream<Uint8Array>`.
-- `NodeFileSource.open(path)` and `NodeFileSink.create(path)` (from `leanpdf/node`).
 
 ### Codecs
 

@@ -4,7 +4,8 @@ import { PdfEncryptedError } from '../core/errors.ts';
 import { encodeName, intOf, nameOf, PdfDict, PdfRef, PdfString, type PdfObj } from '../core/objects.ts';
 import { SourceReader } from '../core/reader.ts';
 import { encodeText, textOf } from '../core/strings.ts';
-import type { OutputSink, RandomAccessSource } from '../core/types.ts';
+import { toSink, toSource } from '../core/io.ts';
+import type { OutputSink, PdfInput, PdfOutput, RandomAccessSource } from '../core/types.ts';
 import { OutputWriter, writeXrefTable } from '../core/writer.ts';
 import { findHeader } from '../core/xref.ts';
 import { InputPass, KEEP, Out, PAGES } from './merge-input.ts';
@@ -70,7 +71,7 @@ class Merged {
 /**
  * Concatenate PDFs into one, streaming: each input is read in turn, only the objects its selected
  * pages need are written (renumbered at the token level; stream data is copied with
- * `sink.copyRange`, never loaded), under a fresh catalog and a flat page tree. Inherited page
+ * `OutputSink.copyRange`, never loaded), under a fresh catalog and a flat page tree. Inherited page
  * attributes are pushed down into each page.
  *
  * Kept: the first input's /Lang, /ViewerPreferences, /PageLayout, /PageMode, /OutputIntents and
@@ -86,17 +87,18 @@ class Merged {
  * /Threads and page /B, /AcroForm /XFA and /SigFlags, and anything else in the catalogs.
  *
  * The output is a classic xref table; the version is the highest of the inputs (at least 1.4).
- * Encrypted inputs throw `PdfEncryptedError`; signed inputs produce a warning. The sink is closed
+ * Encrypted inputs throw `PdfEncryptedError`; signed inputs produce a warning. The output is closed
  * on success and aborted (if it can be) on failure. Memory: per input, one Int32Array slot per
  * object plus the selected pages; outline, form and layer lists grow with their entries.
  */
-export async function mergePdfs(
-  inputs: (RandomAccessSource | PdfDocument)[],
-  sink: OutputSink,
-  opts: MergeOptions = {},
-): Promise<MergeReport> {
+export async function mergePdfs(inputs: (PdfInput | PdfDocument)[], output: PdfOutput, opts: MergeOptions = {}): Promise<MergeReport> {
+  const sink = toSink(output);
   try {
-    const report = await run(inputs, sink, opts);
+    const report = await run(
+      inputs.map((x) => (x instanceof PdfDocument ? x : toSource(x))),
+      sink,
+      opts,
+    );
     await sink.close();
     return report;
   } catch (e) {

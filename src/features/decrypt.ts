@@ -15,8 +15,8 @@ import { SourceReader } from '../core/reader.ts';
 import { rewritePdf, type Plugin, type RewriteOptions, type RewriteReport } from '../core/rewrite.ts';
 import { dictString, serialize } from '../core/serialize.ts';
 import { stringBytes } from '../core/strings.ts';
-import type { OutputSink, RandomAccessSource } from '../core/types.ts';
-import { BlobSource } from '../io/blob.ts';
+import { toSource } from '../core/io.ts';
+import type { PdfInput, PdfOutput } from '../core/types.ts';
 import { AESV2, AESV3, authenticate, NONE, type Decrypt, type Security } from './crypto-handler.ts';
 
 /** The password matches neither the user password nor the owner password. */
@@ -336,25 +336,20 @@ export function decrypt(opts: DecryptOptions = {}): Plugin & { report: DecryptRe
  * streams become readable, so objects inside them (the catalog, say) resolve. Pass the result
  * to `rewritePdf` with the `decrypt` plugin, or to `decryptPdf`.
  */
-export async function openEncryptedPdf(input: RandomAccessSource | Blob, opts: DecryptOptions & { signal?: AbortSignal } = {}): Promise<PdfDocument> {
-  const source = typeof Blob !== 'undefined' && input instanceof Blob ? new BlobSource(input) : (input as RandomAccessSource);
-  const doc = await PdfDocument.open(new SourceReader(source), opts.signal);
+export async function openEncryptedPdf(input: PdfInput, opts: DecryptOptions & { signal?: AbortSignal } = {}): Promise<PdfDocument> {
+  const doc = await PdfDocument.open(new SourceReader(toSource(input)), opts.signal);
   if (isEncrypted(doc)) await security(doc, opts.password ?? '');
   return doc;
 }
 
 /**
- * Decrypt a PDF: writes an unencrypted copy of `source` to `sink` in one forward pass (unchanged
- * objects are copied byte for byte). Unencrypted input is copied as is. The sink is closed on
- * success and aborted (if it can be) on failure. Equivalent to `rewritePdf(source, sink,
+ * Decrypt a PDF: writes an unencrypted copy of `input` to `output` in one forward pass (unchanged
+ * objects are copied byte for byte). Unencrypted input is copied as is. The output is closed on
+ * success and aborted (if it can be) on failure. Equivalent to `rewritePdf(input, output,
  * [decrypt(opts)], opts)`.
  */
-export async function decryptPdf(
-  source: RandomAccessSource | PdfDocument,
-  sink: OutputSink,
-  opts: DecryptOptions & RewriteOptions = {},
-): Promise<DecryptReport & RewriteReport> {
+export async function decryptPdf(input: PdfInput | PdfDocument, output: PdfOutput, opts: DecryptOptions & RewriteOptions = {}): Promise<DecryptReport & RewriteReport> {
   const plugin = decrypt(opts);
-  const r = await rewritePdf(source, sink, [plugin], opts);
+  const r = await rewritePdf(input, output, [plugin], opts);
   return { ...plugin.report, ...r };
 }

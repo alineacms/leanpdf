@@ -19,6 +19,18 @@ export interface OutputSink {
   abort?(reason?: unknown): Promise<void>;
 }
 
+/**
+ * A PDF to read: a Blob or File (read in pieces, never whole), the file's bytes (not to be changed
+ * while in use), or any RandomAccessSource (NodeFileSource in Node).
+ */
+export type PdfInput = RandomAccessSource | Blob | Uint8Array | ArrayBuffer;
+
+/**
+ * Where to write a PDF: a WritableStream (from `showSaveFilePicker`, `Writable.toWeb(...)`, a
+ * TransformStream, ...) or any OutputSink (BlobPartsSink, NodeFileSink).
+ */
+export type PdfOutput = OutputSink | WritableStream<Uint8Array>;
+
 /** Gray or RGB. CMYK is never passed to codecs. */
 export type ColorComponents = 1 | 3;
 
@@ -51,7 +63,8 @@ export interface ImageCodec {
   recompress(input: ImageInput, opts: RecompressOptions): Promise<ImageOutput | null>;
 }
 
-export interface ProgressEvent {
+/** Progress of a rewrite (compressPdf, rewritePdf, decryptPdf, ...). */
+export interface RewriteProgress {
   processedObjects: number;
   totalObjects: number;
   bytesSaved: number;
@@ -66,7 +79,7 @@ export interface CompressOptions extends Partial<RecompressOptions> {
   /** Images processed in parallel. Default 1, which bounds memory to one decoded image. */
   concurrency?: number;
   signal?: AbortSignal;
-  onProgress?: (e: ProgressEvent) => void;
+  onProgress?: (e: RewriteProgress) => void;
 }
 
 export interface CompressReport {
