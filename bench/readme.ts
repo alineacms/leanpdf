@@ -45,9 +45,9 @@ if (existsSync(featuresPath)) {
   // Summary of the other features on the largest file, where streaming shows.
   const largest = features.reduce((a, b) => (b.inBytes > a.inBytes && b.job.endsWith('.pdf') ? b : a)).job;
   const on = features.filter((r) => r.job === largest && r.feature !== 'render');
-  const libs = [/leanpdf/, /pdf-lib/, /PDF\.js/, /MuPDF/];
+  const libs = [/leanpdf/, /pdf-lib/, /^PDF\.js/, /MuPDF/];
   const names = libs.map((re) => on.find((r) => re.test(r.tool))?.tool.replace(/\*\*/g, '').replace(/ \d.*| \(.*/, ''));
-  summary += `\nOn \`${largest}\` (${mb(on[0].inBytes)}), wall time and peak RSS:\n\n`;
+  summary += `\nThe other features on \`${largest}\` (${mb(on[0].inBytes)}), wall time and peak RSS:\n\n`;
   summary += `| Feature | ${names.map((n) => n ?? '').join(' | ')} |\n|---|${libs.map(() => '--:').join('|')}|\n`;
   for (const feature of [...new Set(on.map((r) => r.feature))]) {
     const cells = libs.map((re) => on.find((r) => r.feature === feature && re.test(r.tool)));

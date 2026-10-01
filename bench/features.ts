@@ -158,7 +158,7 @@ function runOnce(argv: string[]): Run {
   if (r.signalCode) status = 'timeout';
   else if (usage.signal) status = `killed (${usage.signal})`;
   else if (usage.exitCode !== 0) {
-    status = /heap out of memory|Allocation failed|Array buffer allocation failed|Cannot enlarge memory|ERR_FS_FILE_TOO_LARGE|out of memory/i.test(err)
+    status = /heap out of memory|Allocation failed|Array buffer allocation failed|Cannot enlarge memory|ERR_FS_FILE_TOO_LARGE|out of memory|(malloc|realloc|calloc) \(\d+ bytes\) failed/i.test(err)
       ? 'out of memory'
       : `failed (${(err.split('\n').find((l) => /\b\w*Error\b|error:|Aborted/.test(l)) ?? err.trim().split('\n').at(-1))?.trim().slice(0, 80)})`;
   }

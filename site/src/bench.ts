@@ -256,7 +256,7 @@ const fmtDiffers = (r: FeatureRow): string => (typeof r.differs !== 'number' ? '
 function featureTable(rows: FeatureRow[], title: string): string {
   const jobs = [...new Set(rows.map((r) => r.job))];
   const size = (job: string) => rows.find((r) => r.job === job)!.inBytes;
-  let html = `<div class="table-wrap" tabindex="0"><table class="bench-table"><caption class="visually-hidden">${escapeHtml(title)}: wall time and peak memory</caption><thead><tr><th scope="col">Tool</th>`;
+  let html = `<div class="table-wrap" tabindex="0"><table class="bench-table jobs"><caption class="visually-hidden">${escapeHtml(title)}: wall time and peak memory</caption><thead><tr><th scope="col">Tool</th>`;
   for (const j of jobs) html += `<th scope="col" class="num">${jobName(j)}<br><span class="muted">${fmtMb(size(j))}</span></th>`;
   html += '</tr></thead><tbody>';
   for (const tool of [...new Set(rows.map((r) => r.tool))]) {
@@ -279,7 +279,7 @@ function renderTable(rows: FeatureRow[]): string {
   let html = `<div class="table-wrap" tabindex="0"><table class="bench-table"><caption class="visually-hidden">Rendering times</caption><thead><tr>
 <th scope="col">File</th><th scope="col">Renderer</th><th scope="col" class="num">All pages</th><th scope="col" class="num">Per page (median)</th><th scope="col" class="num">Unlike MuPDF</th></tr></thead><tbody>`;
   for (const r of rows) {
-    const file = `${jobName(r.job)}${r.pages ? ` <span class="muted">${r.pages} pages</span>` : ''}`;
+    const file = `${jobName(r.job)}${r.pages ? `<br><span class="muted">${r.pages} pages</span>` : ''}`;
     html += `<tr${isLeanpdf(r) ? ' class="hl"' : ''}><td>${file}</td><th scope="row">${renderInline(r.tool)}</th>`;
     html +=
       r.status !== 'ok'
@@ -298,7 +298,10 @@ export function featureSection(all: FeatureRow[], feature: (typeof FEATURES)[num
   let table: string;
   if (feature.id === 'render') {
     const perPage = rows.map((r) => ({ ...r, tool: `${r.tool.replace(/ \(Chromium\)/, '')}, ${r.job}` }));
-    charts = [barChart(perPage, { title: 'Time per page', unit: 'median, ms', value: (r) => r.medianPageMs ?? 0, format: (r) => `${Math.round(r.medianPageMs ?? 0)} ms` }, `${id}-ms`)];
+    charts = [
+      barChart(perPage, { title: 'Time per page', unit: 'median, ms', value: (r) => r.medianPageMs ?? 0, format: (r) => `${Math.round(r.medianPageMs ?? 0)} ms` }, `${id}-ms`),
+      barChart(perPage, { title: 'All pages', unit: 'seconds, with opening the file', value: (r) => r.seconds, format: (r) => fmtTime(r.seconds) }, `${id}-total`),
+    ];
     table = renderTable(rows);
   } else {
     const largest = rows.reduce((a, b) => (b.inBytes > a.inBytes ? b : a)).job;
