@@ -160,7 +160,7 @@ function runOnce(argv: string[]): Run {
   else if (usage.exitCode !== 0) {
     status = /heap out of memory|Allocation failed|Array buffer allocation failed|Cannot enlarge memory|ERR_FS_FILE_TOO_LARGE|out of memory/i.test(err)
       ? 'out of memory'
-      : `failed (${err.trim().split('\n').at(-1)?.slice(0, 80)})`;
+      : `failed (${(err.split('\n').find((l) => /\b\w*Error\b|error:|Aborted/.test(l)) ?? err.trim().split('\n').at(-1))?.trim().slice(0, 80)})`;
   }
   return { status, seconds, cpuSeconds: usage.cpu, peakMb: usage.maxRssKb / 1024 };
 }
