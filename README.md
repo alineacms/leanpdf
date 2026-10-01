@@ -97,7 +97,7 @@ The CLI has a command for every feature; see [Command line](#command-line).
 ```ts
 import { openPdf, getInfo, getPages, getOutline, getFormFields, listAttachments, attachmentStream } from 'leanpdf';
 
-const doc = await openPdf(file); // a Blob/File, or any RandomAccessSource
+const doc = await openPdf(file); // a Blob/File, its bytes (Uint8Array, ArrayBuffer), or any RandomAccessSource
 const info = await getInfo(doc); // { title, author, creationDate, pageCount, tagged, signed, ... }
 const pages = await getPages(doc); // [{ width, height, rotate, label }]
 const outline = await getOutline(doc); // [{ title, pageIndex, url, children }]
@@ -130,7 +130,7 @@ Unicode mapping left out.
 ```ts
 import { openPdf, renderPage } from 'leanpdf';
 
-const doc = await openPdf(file);
+const doc = await openPdf(await file.arrayBuffer()); // or openPdf(file) for files too large to hold
 const canvas = new OffscreenCanvas(1, 1); // or a <canvas> element; it is resized to the page
 const { width, height, warnings } = await renderPage(doc, 0, canvas, { scale: 2 }); // 144 dpi
 ```
@@ -141,6 +141,9 @@ outlines; fonts that aren't embedded use a similar system font. Images stream fr
 straight to about the size they're drawn, a page's JPEGs decode in parallel, and decoded images
 are cached per document. JPEGs go to the browser's decoder, except CMYK ones, which browsers
 invert: leanpdf decodes those itself.
+
+Open the file's bytes rather than the File when it fits in memory: a page takes dozens of small
+reads, and each read from a File is a round trip to the browser, slow on phones in particular.
 
 | Option | Default | |
 |---|---|---|
@@ -275,15 +278,15 @@ Decoders for images browsers can't decode (JPEG 2000, CMYK JPEG, fax; 30 KB) loa
 | Import | Minified | Gzipped |
 |---|--:|--:|
 | `compressPdfBlob` (core, Blob I/O, browser codec) | 43.9 KB | 16.9 KB |
-| `openPdf` | 21.5 KB | 8.5 KB |
+| `openPdf` | 21.7 KB | 8.5 KB |
 | `openPdf` + `getInfo` | 29.3 KB | 11.6 KB |
 | `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 30.8 KB | 11.9 KB |
 | `openPdf` + `extractText` | 46.8 KB | 20.1 KB |
-| `openPdf` + `renderPage` | 125.0 KB | 52.4 KB |
+| `openPdf` + `renderPage` | 125.2 KB | 52.5 KB |
 | `rewritePdf` + all editing plugins | 49.6 KB | 18.7 KB |
 | `mergePdfs` | 40.6 KB | 15.7 KB |
 | `decryptPdf` | 42.9 KB | 17.1 KB |
-| everything | 220.0 KB | 88.0 KB |
+| everything | 220.2 KB | 88.0 KB |
 
 ### I/O
 

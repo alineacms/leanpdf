@@ -202,9 +202,24 @@ describe.skipIf(!browser)('app tools', () => {
     await page.waitForFunction(() => document.getElementById('view-canvas')?.dataset.page === '0', undefined, { timeout: 15_000 });
     expect(await page.textContent('#view-count')).toBe('3');
     expect(await page.evaluate(() => (document.getElementById('view-canvas') as HTMLCanvasElement).width)).toBeGreaterThan(300);
+    // The first page also reports reading the file into memory and opening it.
+    expect(await page.textContent('#view-status')).toMatch(/^Rendered in \d+ ms \(file read in \d+ ms, opened in \d+ ms\)$/);
     await page.click('#view-next');
     await page.waitForFunction(() => document.getElementById('view-canvas')?.dataset.page === '1', undefined, { timeout: 15_000 });
     expect(await page.inputValue('#view-page')).toBe('2');
+    expect(await page.textContent('#view-status')).toMatch(/^Rendered in \d+ ms$/);
+
+    // A new height alone (a phone's address bar) doesn't render again; a new width does.
+    await page.evaluate(() => {
+      const seen: string[] = ((globalThis as unknown as { seen: string[] }).seen = []);
+      new MutationObserver(() => seen.push(document.getElementById('view-status')!.textContent ?? '')).observe(document.getElementById('view-status')!, { childList: true, characterData: true, subtree: true });
+    });
+    const size = page.viewportSize()!;
+    await page.setViewportSize({ width: size.width, height: size.height - 120 });
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => (globalThis as unknown as { seen: string[] }).seen)).toEqual([]);
+    await page.setViewportSize({ width: 480, height: size.height - 120 });
+    await page.waitForFunction(() => (globalThis as unknown as { seen: string[] }).seen.includes('Rendering…'), undefined, { timeout: 5_000 });
     expect(await page.isVisible('#view-error')).toBe(false);
     expect(errors).toEqual([]);
     await page.close();

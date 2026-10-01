@@ -51,6 +51,8 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
   let count = 0;
   let running: AbortController | null = null;
   let queued = false;
+  /** Width (CSS pixels) the page was last fitted to. */
+  let fitted = 0;
 
   const drop = new Drop(panel, (files) => {
     file = files[0];
@@ -85,7 +87,9 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
     nav();
     const dpr = globalThis.devicePixelRatio || 1;
     const z = zoom.value;
-    const width = Math.max(100, r.viewport.clientWidth - 32) * dpr;
+    const cssWidth = Math.max(100, r.viewport.clientWidth - 32);
+    const width = cssWidth * dpr;
+    if (z === 'fit') fitted = cssWidth;
     try {
       const out = await ctx.worker.run('view', { file, page, ...(z === 'fit' ? { width } : { scale: Number(z) * dpr }) }, { signal: ctl.signal });
       count = out.pageCount;
@@ -99,7 +103,9 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
       else canvas.getContext('2d')?.drawImage(out.bitmap, 0, 0);
       canvas.setAttribute('aria-label', `Page ${page + 1} of ${count}`);
       canvas.dataset.page = String(page);
-      r.status.textContent = `Rendered in ${fmtDuration(out.ms)}`;
+      // The first page of a file also says what reading and opening it took.
+      const first = out.openMs === undefined ? '' : ` (file ${out.readMs === undefined ? '' : `read in ${fmtDuration(out.readMs)}, `}opened in ${fmtDuration(out.openMs)})`;
+      r.status.textContent = `Rendered in ${fmtDuration(out.ms)}${first}`;
       r.warnings.textContent = '';
       for (const w of out.warnings) {
         const li = document.createElement('li');
@@ -145,7 +151,8 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
   });
   let resize: ReturnType<typeof setTimeout> | undefined;
   addEventListener('resize', () => {
-    if (zoom.value !== 'fit' || !file || panel.hidden) return;
+    // Only a new width matters: on phones the address bar showing or hiding changes the height.
+    if (zoom.value !== 'fit' || !file || panel.hidden || Math.max(100, r.viewport.clientWidth - 32) === fitted) return;
     clearTimeout(resize);
     resize = setTimeout(() => void show(), 200);
   });
