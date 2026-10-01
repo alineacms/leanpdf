@@ -1,8 +1,11 @@
-/** Home page: what leanpdf is, with numbers taken from the benchmark data and the build itself. */
+/**
+ * The front page: the app (open a PDF, view it, work on it with the toolbox; site/src/app/main.ts),
+ * and below it what leanpdf is, with numbers from the benchmark data and the build itself.
+ */
 import { GITHUB_URL, NPM_URL } from '../config.ts';
 import { fmtMb, fmtRss, memoryHighlight, plainTool, savingsHighlight, type BenchData } from '../bench.ts';
 import { codeBlock, escapeHtml } from '../highlight.ts';
-import { arrowRight, feather, fileText, github, minimize, pkg, scissors, shield, waves } from './icons.ts';
+import { arrowRight, feather, fileText, github, lock, minimize, pkg, scissors, shield, upload, waves } from './icons.ts';
 import { page, type Assets } from './layout.ts';
 
 export interface BundleSize {
@@ -82,20 +85,37 @@ const FEATURES: { icon: string; title: string; text: string }[] = [
 ];
 
 export function homePage(assets: Assets, bench: BenchData | null, bundle: BundleSize | null): string {
-  const body = `<section class="hero">
+  const body = `<div id="app" class="app" data-state="loading">
+<section class="landing" id="landing" aria-labelledby="landing-title">
+  <div class="container landing-inner">
+    <h1 id="landing-title">View, compress and edit PDFs, <span class="accent">right in your browser</span></h1>
+    <p class="lead">Powered by <strong>leanpdf</strong>, a small, streaming PDF toolkit. Large files are fine.</p>
+    <label class="drop landing-drop">
+      <input type="file" id="open-file" accept="application/pdf,.pdf">
+      ${upload}
+      <span class="drop-title">Open a PDF</span>
+      <span class="small">or drop it anywhere on this page</span>
+    </label>
+    <p class="landing-sub"><span class="privacy">${lock}Nothing is uploaded: the file stays on this device.</span> <button type="button" class="link-button" id="open-sample">Try the sample PDF</button></p>
+    <noscript><div class="notice"><p>The app needs JavaScript. The <a href="/docs/">library docs</a> work without it.</p></div></noscript>
+  </div>
+</section>
+</div>
+
+<section class="hero landing-more section-soft" aria-labelledby="code">
   <div class="container">
     <div>
       <span class="eyebrow">Open source · MIT</span>
-      <h1>Lean PDFs, <span class="accent">streamed</span>.</h1>
-      <p class="lead"><strong>leanpdf</strong> is a small PDF toolkit for browsers, Node and Bun. It compresses, reads, renders, edits, merges and decrypts PDFs without loading them into memory.</p>
-      <div class="cta">
-        <a class="button primary" href="/app/">Try it in your browser ${arrowRight}</a>
-        <a class="button" href="/docs/">Read the docs</a>
-      </div>
+      <h2 id="code">Use it in your code</h2>
+      <p class="lead">leanpdf runs in browsers, Node and Bun. It compresses, reads, renders, edits, merges and decrypts PDFs without loading them into memory.</p>
       <div class="install" aria-label="Install command">
         <span class="prompt" aria-hidden="true">$</span><code id="install-cmd">npm install leanpdf</code>
       </div>
       <p class="small muted">In Node and the CLI, add <code>sharp</code> to compress and <code>@napi-rs/canvas</code> to render.</p>
+      <div class="cta">
+        <a class="button primary" href="/docs/">Read the docs ${arrowRight}</a>
+        <a class="button" href="/benchmarks/">Benchmarks</a>
+      </div>
     </div>
     <div class="hero-code">
       ${codeBlock(BROWSER_EXAMPLE, 'ts', 'Compress, in a browser or Web Worker')}
@@ -104,7 +124,7 @@ export function homePage(assets: Assets, bench: BenchData | null, bundle: Bundle
   </div>
 </section>
 
-<section class="section section-soft" aria-labelledby="numbers">
+<section class="section landing-more" aria-labelledby="numbers">
   <div class="container">
     <div class="section-head">
       <h2 id="numbers">In numbers</h2>
@@ -114,7 +134,7 @@ export function homePage(assets: Assets, bench: BenchData | null, bundle: Bundle
   </div>
 </section>
 
-<section class="section" aria-labelledby="features">
+<section class="section landing-more" aria-labelledby="features">
   <div class="container">
     <div class="section-head">
       <h2 id="features">Features</h2>
@@ -126,7 +146,7 @@ export function homePage(assets: Assets, bench: BenchData | null, bundle: Bundle
   </div>
 </section>
 
-<section class="section section-soft" aria-labelledby="how">
+<section class="section section-soft landing-more" aria-labelledby="how">
   <div class="container">
     <div class="section-head">
       <h2 id="how">How it works</h2>
@@ -140,7 +160,7 @@ export function homePage(assets: Assets, bench: BenchData | null, bundle: Bundle
   </div>
 </section>
 
-<section class="section" aria-labelledby="limits">
+<section class="section landing-more" aria-labelledby="limits">
   <div class="container split">
     <div>
       <h2 id="limits">Limits</h2>
@@ -166,11 +186,11 @@ export function homePage(assets: Assets, bench: BenchData | null, bundle: Bundle
 </section>`;
   return page({
     path: '/',
-    title: 'leanpdf · small, streaming PDF toolkit for browsers, Node and Bun',
+    title: 'leanpdf · PDF tools in your browser',
     description:
-      'leanpdf compresses, reads, edits, merges and decrypts PDFs with bounded memory, copying everything it does not change byte for byte. Tree-shakeable, zero dependencies; runs in browsers, Node and Bun.',
+      'View, compress, edit, merge and unlock PDFs in your browser, with nothing uploaded. Powered by leanpdf, a small streaming PDF toolkit for browsers, Node and Bun.',
     body,
     assets,
-    script: assets.siteJs,
+    script: [assets.appJs, assets.siteJs],
   });
 }

@@ -22,13 +22,14 @@ export interface PageOptions {
   /** Contents of <main>. */
   body: string;
   assets: Assets;
-  /** Page script (a module), if any. */
-  script?: string;
+  /** Page scripts (modules), if any. */
+  script?: string | string[];
   noindex?: boolean;
+  /** Extra <head> markup. */
+  head?: string;
 }
 
 const NAV: { href: string; label: string }[] = [
-  { href: '/app/', label: 'App' },
   { href: '/docs/', label: 'Docs' },
   { href: '/benchmarks/', label: 'Benchmarks' },
 ];
@@ -66,15 +67,16 @@ ${o.assets.png ? '<link rel="apple-touch-icon" href="/apple-touch-icon.png">\n' 
 <meta property="og:description" content="${e(o.description)}">
 <meta property="og:url" content="${e(url)}">
 ${og}
-${o.script ? `<script type="module" src="${o.script}"></script>` : ''}
+${[o.script ?? []].flat().map((src) => `<script type="module" src="${src}"></script>`).join('\n')}
+${o.head ?? ''}
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="container">
-    <a class="brand" href="/"${o.path === '/' ? ' aria-current="page"' : ''}><img src="/favicon.svg" alt="" width="30" height="30">leanpdf</a>
+    <a class="brand" href="/"${o.path === '/' ? ' aria-current="page"' : ''} aria-label="leanpdf home"><span>lean</span><span class="brand-pdf">pdf</span></a>
     <nav class="site-nav" aria-label="Main">
-      <ul>${nav}<li><a href="${GITHUB_URL}" rel="noopener">${github}<span>GitHub</span></a></li></ul>
+      <ul>${nav}<li><a href="${GITHUB_URL}" rel="noopener" aria-label="GitHub">${github}<span>GitHub</span></a></li></ul>
     </nav>
   </div>
 </header>

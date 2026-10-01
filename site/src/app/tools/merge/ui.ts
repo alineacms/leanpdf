@@ -1,6 +1,6 @@
 /**
- * The Merge tool: put the pages of several PDFs, in the order listed, into one (./job.ts). Each
- * file can contribute some of its pages, in any order.
+ * The Merge tool: put the pages of several PDFs, in the order listed, into one (./job.ts). The
+ * list starts with the open document; each file can contribute some of its pages, in any order.
  */
 import { chevronDown, chevronUp, close, layers } from '../../../pages/icons.ts';
 import { describeError, el, fmtBytes, fmtInt, refs } from '../../format.ts';
@@ -10,22 +10,20 @@ import { pagesText, parseRanges } from '../../ranges.ts';
 import type { Tool, ToolContext } from '../../tool.ts';
 
 const TEMPLATE = `
-<div class="tool-layout">
-  <form class="card" data-ref="form" novalidate aria-label="Merge PDFs">
-    ${dropHtml('merge', { multiple: true, title: 'Choose PDFs or drop them here', hint: 'Add as many as you like, in one go or one by one. The files stay on this device.' })}
-    <ol class="file-list" id="merge-list" data-ref="list" aria-label="Files to merge, in order"></ol>
-    <p class="status-line" id="merge-total" data-ref="total" aria-live="polite"></p>
-    ${actionsHtml('merge', 'Merge', layers)}
-  </form>
-  <div class="stack">
-    ${statusHtml('merge')}
-    ${resultHtml('merge')}
-  </div>
-</div>`;
+<form class="tool-form" data-ref="form" novalidate aria-label="Merge">
+  <ol class="file-list" id="merge-list" data-ref="list" aria-label="Files to merge, in order"></ol>
+  ${dropHtml('merge', { multiple: true, title: 'Add PDFs', hint: 'Choose or drop them here.' })}
+  <p class="status-line" id="merge-total" data-ref="total" aria-live="polite"></p>
+  ${actionsHtml('merge', 'Merge', layers)}
+</form>
+${statusHtml('merge')}
+${resultHtml('merge')}`;
 
 interface Item {
   id: number;
   file: File;
+  /** Shown instead of the file's name (the open document). */
+  label?: string;
   /** Page count and encryption, once known; a string when the file could not be read. */
   probe?: Probe | string;
   pages: string;
@@ -47,9 +45,10 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
 
   let items: Item[] = [];
   let nextId = 1;
-  const result = new Result(panel);
+  const result = new Result(panel, ctx.openResult);
   const runner = new Runner(panel, ctx, () => refresh());
   const drop = new Drop(panel, (files) => add(files));
+  const nameOf = (it: Item): string => it.label ?? it.file.name;
 
   /** An item's page selection, or an error message. */
   const selection = (it: Item): number[] | null | string => {
@@ -60,10 +59,10 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
   const problems = (): string[] => {
     const out: string[] = [];
     items.forEach((it, i) => {
-      const n = `File ${i + 1} (${it.file.name})`;
+      const n = `File ${i + 1} (${nameOf(it)})`;
       if (it.probe === undefined) out.push(`${n} is still being read.`);
       else if (typeof it.probe === 'string') out.push(`${n} can’t be read: ${it.probe}`);
-      else if (it.probe.encrypted) out.push(`${n} is encrypted. Unlock it first.`);
+      else if (it.probe.encrypted) out.push(`${n} is encrypted. Open it on its own first, and add the decrypted copy it offers.`);
       else if (typeof selection(it) === 'string') out.push(`${n}: ${selection(it)}`);
     });
     return out;
@@ -87,7 +86,7 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
   const renderItem = (it: Item, i: number): HTMLLIElement => {
     const li = el('li', undefined, 'file-item');
     li.dataset.id = String(it.id);
-    const name = el('div', it.file.name, 'name');
+    const name = el('div', nameOf(it), 'name');
     const meta = el('span', undefined, 'meta');
     const sel = selection(it);
     if (it.probe === undefined) meta.textContent = `${fmtBytes(it.file.size)} · reading…`;
@@ -95,16 +94,16 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
       meta.textContent = `Can’t be read: ${it.probe}`;
       meta.classList.add('bad');
     } else if (it.probe.encrypted) {
-      meta.textContent = `${fmtBytes(it.file.size)} · encrypted: unlock it first`;
+      meta.textContent = `${fmtBytes(it.file.size)} · encrypted: open it on its own first`;
       meta.classList.add('bad');
     } else meta.textContent = `${fmtBytes(it.file.size)} · ${pagesText(it.probe.pageCount)}`;
     name.append(meta);
     const buttons = el('div', undefined, 'icon-buttons');
-    const up = iconButton(chevronUp, `Move ${it.file.name} up`, 'up');
-    const down = iconButton(chevronDown, `Move ${it.file.name} down`, 'down');
+    const up = iconButton(chevronUp, `Move ${nameOf(it)} up`, 'up');
+    const down = iconButton(chevronDown, `Move ${nameOf(it)} down`, 'down');
     if (i === 0) up.dataset.edge = '';
     if (i === items.length - 1) down.dataset.edge = '';
-    buttons.append(up, down, iconButton(close, `Remove ${it.file.name}`, 'remove'));
+    buttons.append(up, down, iconButton(close, `Remove ${nameOf(it)}`, 'remove'));
     li.append(name, buttons);
     if (typeof it.probe === 'object' && !it.probe.encrypted) {
       const input = el('input', undefined, 'input');
@@ -114,7 +113,7 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
       input.autocomplete = 'off';
       input.spellcheck = false;
       input.dataset.action = 'pages';
-      input.setAttribute('aria-label', `Pages of ${it.file.name}`);
+      input.setAttribute('aria-label', `Pages of ${nameOf(it)}`);
       const note = el('p', typeof sel === 'string' ? sel : '', `field-note${typeof sel === 'string' ? ' bad' : ''}`);
       note.dataset.note = '';
       li.append(input, note);
@@ -223,6 +222,18 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
   };
 
   const actions = wireActions(panel, r.form as HTMLFormElement, ctx, run, () => (items.length ? 'merged.pdf' : null), (m) => runner.error(m));
+  // A new document starts a new list with it.
+  let shown = -1;
+  ctx.doc.subscribe(() => {
+    const doc = ctx.doc.doc;
+    if (doc?.id === shown) return;
+    shown = doc?.id ?? -1;
+    result.hide();
+    runner.hideProgress();
+    runner.clearError();
+    items = doc ? [{ id: nextId++, file: doc.file, label: `${doc.original.name} (open)`, probe: doc.probe, pages: '' }] : [];
+    render();
+  });
   refresh();
 }
 
@@ -230,6 +241,6 @@ export const mergeTool: Tool = {
   id: 'merge',
   label: 'Merge',
   icon: layers,
-  summary: 'Combine PDFs in the order you choose, with all pages or some.',
+  summary: 'Add other PDFs, before or after this one.',
   mount,
 };

@@ -41,7 +41,7 @@ export function describeError(err: unknown): string {
   const message = err instanceof Error || err instanceof DOMException ? err.message : String(err);
   switch (name) {
     case 'PdfEncryptedError':
-      return 'This PDF is encrypted. Unlock it with the Unlock tool first, then use the unlocked copy.';
+      return 'This PDF is encrypted, and could not be opened with its password.';
     case 'PdfPasswordError':
       return 'The password is not correct.';
     case 'PdfFormatError':

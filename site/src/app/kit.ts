@@ -4,7 +4,7 @@
  * Markup helpers return HTML strings with data-ref attributes; the matching controllers look them
  * up with refs().
  */
-import { download, save, upload } from '../pages/icons.ts';
+import { download, eye, save, upload } from '../pages/icons.ts';
 import { describeError, el, fmtBytes, fmtDuration, refs } from './format.ts';
 import type { ToolContext } from './tool.ts';
 
@@ -69,7 +69,7 @@ export function statusHtml(id: string): string {
 
 /**
  * Runs one job at a time for a tool, driving the cards made by statusHtml: progress, cancel,
- * errors (described for people), and the memory monitor. `onChange` is called when a run starts
+ * errors (described for people). `onChange` is called when a run starts
  * or ends, to update buttons.
  */
 export class Runner {
@@ -114,7 +114,6 @@ export class Runner {
       this.cancelButton.hidden = false;
       this.cancelButton.focus();
       this.ctx.announce(label);
-      this.ctx.memory.begin();
     }
     try {
       const out = await work(ctl.signal);
@@ -133,7 +132,6 @@ export class Runner {
       }
       return undefined;
     } finally {
-      if (!opts.quiet) this.ctx.memory.end();
       this.cancelButton.hidden = true;
       this.current = null;
       this.onChange();
@@ -150,8 +148,10 @@ export class Runner {
     this.r.progressText.textContent = text;
   }
 
+  /** The run succeeded and its result is shown: the progress card goes. */
   done(text: string): void {
     this.r.progressText.textContent = text;
+    this.r.progressCard.hidden = true;
   }
 
   hideProgress(): void {
@@ -183,7 +183,10 @@ export function resultHtml(id: string, heading = 'Result'): string {
   return `<section class="card report" id="${id}-report" data-ref="report" hidden tabindex="-1" aria-labelledby="${id}-report-heading">
       <h2 id="${id}-report-heading">${heading}</h2>
       <table class="facts"><tbody id="${id}-facts" data-ref="facts"></tbody></table>
-      <a class="button primary download" id="${id}-download" data-ref="download" hidden>${download}<span data-ref="downloadText">Download</span></a>
+      <div class="row-actions">
+        <a class="button primary download" id="${id}-download" data-ref="download" hidden>${download}<span data-ref="downloadText">Download</span></a>
+        <button type="button" class="button" id="${id}-view" data-ref="view" hidden>${eye}View it</button>
+      </div>
       <p id="${id}-saved-to" data-ref="savedTo" hidden></p>
     </section>`;
 }
@@ -199,11 +202,15 @@ export type Fact = [label: string, value: string | Node, key?: string];
 
 /** The result card made by resultHtml: a facts table and the download link or saved-to note. */
 export class Result {
-  private readonly r: Record<'report' | 'facts' | 'download' | 'downloadText' | 'savedTo', HTMLElement>;
+  private readonly r: Record<'report' | 'facts' | 'download' | 'downloadText' | 'view' | 'savedTo', HTMLElement>;
   private url: string | null = null;
+  private blob: { blob: Blob; name: string } | null = null;
 
-  constructor(root: ParentNode) {
-    this.r = refs(root, ['report', 'facts', 'download', 'downloadText', 'savedTo'] as const);
+  /** `onView` opens a result kept in memory in the viewer. */
+  constructor(root: ParentNode, onView?: (blob: Blob, name: string) => void) {
+    this.r = refs(root, ['report', 'facts', 'download', 'downloadText', 'view', 'savedTo'] as const);
+    this.r.view.addEventListener('click', () => this.blob && onView?.(this.blob.blob, this.blob.name));
+    if (!onView) this.r.view.remove();
   }
 
   hide(): void {
@@ -227,6 +234,8 @@ export class Result {
     this.url = null;
     const a = link as HTMLAnchorElement;
     a.hidden = !out.blob;
+    this.r.view.hidden = !out.blob;
+    this.blob = out.blob ? { blob: out.blob, name } : null;
     savedTo.hidden = !out.savedTo;
     if (out.blob) {
       this.url = URL.createObjectURL(out.blob);

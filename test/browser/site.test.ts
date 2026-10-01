@@ -1,9 +1,10 @@
 /**
  * End-to-end test of the website (site/): build it into a temporary directory, serve that with
- * the generated _headers applied (as Cloudflare Pages would), and check every page in headless
- * Chromium: it renders, loads nothing from other origins, logs no errors, is crossOriginIsolated
- * and has no horizontal scroll at phone width. The app compresses the fixture both to a
- * downloadable Blob and streamed to a file from showSaveFilePicker (stubbed with an OPFS file).
+ * the generated _headers applied (as Cloudflare Pages would), and check every page in a headless
+ * browser: it renders, loads nothing from other origins, logs no errors, is crossOriginIsolated
+ * and has no horizontal scroll at phone width. The front page opens a PDF and compresses it both
+ * to a downloadable Blob and streamed to a file from showSaveFilePicker (stubbed with an OPFS
+ * file). tools.test.ts covers the viewer and the other tools.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -15,10 +16,8 @@ import { buildSite, writeSite, type SiteFiles } from '../../site/build.ts';
 import { FEATURES, loadBench, loadFeatures } from '../../site/src/bench.ts';
 import { startSiteServer, type SiteServer } from '../../site/serve.ts';
 import { buildFixturePdf } from './fixture.ts';
-import { hasQpdf, isChromium, launchBrowser, qpdfCheck } from './harness.ts';
+import { ENGINE, hasQpdf, launchBrowser, qpdfCheck } from './harness.ts';
 
-// The harness starts Chromium with ForceEagerMeasureMemory, so measureUserAgentSpecificMemory()
-// answers right away instead of at the next GC.
 const launch = await launchBrowser('site test');
 const browser = launch.browser;
 
@@ -50,12 +49,12 @@ afterAll(async () => {
 describe('site build and server', () => {
   test('outputs every page, hashed assets, the worker and _headers', () => {
     const paths = [...files.keys()];
-    for (const p of ['index.html', 'app/index.html', 'docs/index.html', 'benchmarks/index.html', '404.html', '_headers', 'favicon.svg']) expect(paths).toContain(p);
+    for (const p of ['index.html', 'app/index.html', 'docs/index.html', 'benchmarks/index.html', '404.html', '_headers', 'favicon.svg', 'sample.pdf']) expect(paths).toContain(p);
     for (const name of ['app', 'site', 'worker', 'styles']) expect(paths.some((p) => new RegExp(`^assets/${name}-[0-9a-f]{10}\\.(js|css)$`).test(p))).toBe(true);
   });
 
   test('serves _headers rules, Pages-style redirects and a 404 page', async () => {
-    const app = await fetch(url('/app/'));
+    const app = await fetch(url('/'));
     expect(app.status).toBe(200);
     expect(app.headers.get('cross-origin-opener-policy')).toBe('same-origin');
     expect(app.headers.get('cross-origin-embedder-policy')).toBe('require-corp');
@@ -102,7 +101,7 @@ function watch(page: Page): Watch {
 const noHorizontalScroll = (page: Page): Promise<boolean> => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
 describe.skipIf(!browser)('site pages', () => {
-  const PAGES = ['/', '/app/', '/docs/', '/benchmarks/', '/404.html'];
+  const PAGES = ['/', '/docs/', '/benchmarks/', '/404.html'];
 
   for (const width of [390, 360]) {
     test(`every page renders cleanly at ${width} px`, async () => {
@@ -111,7 +110,7 @@ describe.skipIf(!browser)('site pages', () => {
         const page = await context.newPage();
         const w = watch(page);
         await page.goto(url(path), { waitUntil: 'load' });
-        if (path === '/app/') await page.waitForSelector('#app[data-state="ready"]');
+        if (path === '/') await page.waitForSelector('#app[data-state="ready"]');
         expect(await page.locator('h1').count()).toBe(1);
         expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
         expect({ path, overflow: !(await noHorizontalScroll(page)) }).toEqual({ path, overflow: false });
@@ -123,20 +122,26 @@ describe.skipIf(!browser)('site pages', () => {
     }, 45_000);
   }
 
-  test('home page', async () => {
+  test('front page: the app, then what leanpdf is; /app/ sends visitors there', async () => {
     const page = await browser!.newPage({ viewport: { width: 1280, height: 800 } });
     const w = watch(page);
     await page.goto(url('/'));
-    expect(await page.textContent('h1')).toContain('Lean PDFs');
+    await page.waitForSelector('#app[data-state="ready"]');
+    expect(await page.textContent('h1')).toContain('in your browser');
+    expect(await page.isVisible('.landing-drop')).toBe(true);
     expect(await page.textContent('#install-cmd')).toBe('npm install leanpdf');
     expect(await page.locator('a[href="https://github.com/alineacms/leanpdf"]').count()).toBeGreaterThan(0);
     expect(await page.locator('a[href="https://www.npmjs.com/package/leanpdf"]').count()).toBeGreaterThan(0);
-    expect(await page.locator('a.button.primary[href="/app/"]').count()).toBe(1);
     expect(await page.locator('.stat').count()).toBe(loadBench() ? 3 : 2);
     expect(await page.textContent('.stats')).toMatch(/[\d.]+KB gzipped/);
     // Copy buttons come from the enhancement script.
     expect(await page.locator('.code .copy').count()).toBe(2);
     expect(w.errors).toEqual([]);
+    // Leaving the page (and the redirect leaving /app/) may abort loads still in flight; only
+    // real errors count from here.
+    await page.goto(url('/app/'));
+    await page.waitForURL(url('/'));
+    expect(w.errors.filter((e) => !e.includes('ERR_ABORTED') && !e.includes('NS_BINDING_ABORTED') && !e.includes('cancelled'))).toEqual([]);
     await page.close();
   });
 
@@ -198,36 +203,36 @@ describe.skipIf(!browser)('site pages', () => {
   });
 });
 
+/** The front page with the fixture open and the Compress section expanded. */
 async function openApp(context: BrowserContext): Promise<{ page: Page; w: Watch }> {
   const page = await context.newPage();
   const w = watch(page);
-  await page.goto(url('/app/'));
+  await page.goto(url('/'));
   await page.waitForSelector('#app[data-state="ready"]');
-  await page.setInputFiles('#compress-file', inputPath);
+  await page.setInputFiles('#open-file', inputPath);
+  await page.waitForSelector('.page canvas', { timeout: 20_000 });
+  if (await page.isVisible('#toolbox-toggle')) await page.click('#toolbox-toggle');
+  await page.click('#tool-compress > summary');
   await page.fill('#compress-max-width', '1200');
   await page.fill('#compress-max-height', '1200');
   return { page, w };
 }
 
 describe.skipIf(!browser)('app', () => {
-  test('is crossOriginIsolated and compresses to a downloadable Blob', async () => {
+  test('opens a PDF and compresses it to a downloadable Blob, which it can show', async () => {
     const context = await browser!.newContext({ viewport: { width: 390, height: 844 } });
     const { page, w } = await openApp(context);
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-    // measureUserAgentSpecificMemory() is Chromium's.
-    if (isChromium) expect(await page.getAttribute('#memory-table tbody th', 'data-method')).toBe('performance.measureUserAgentSpecificMemory()');
-    expect(await page.getAttribute('#tab-compress', 'aria-selected')).toBe('true');
+    expect(await page.textContent('#doc-name')).toBe('fixture.pdf');
     expect(await page.isEnabled('#compress-start')).toBe(true);
 
     await page.click('#compress-start');
     await page.waitForSelector('#compress-report', { state: 'visible', timeout: 30_000 });
     expect(await page.isVisible('#compress-error')).toBe(false);
-    expect(await page.textContent('#compress-progress-text')).toStartWith('100%');
+    expect(await page.isVisible('#compress-progress')).toBe(false);
     expect(await page.textContent('#compress-r-recompressed')).toBe('3');
     expect(await page.textContent('#compress-r-skipped')).toContain('below the size threshold');
     expect(await page.textContent('#compress-saved-pct')).toMatch(/^−\d+\.\d%$/);
-    // Peak memory was sampled during the run by at least one meter (Chromium has them).
-    if (isChromium) await page.waitForFunction(() => /: [\d.]+ (KB|MB)/.test(document.getElementById('compress-r-memory')?.textContent ?? ''), undefined, { timeout: 15_000 });
 
     const outBytes = Number(await page.getAttribute('#compress-report', 'data-output-bytes'));
     const href = (await page.getAttribute('#compress-download', 'href'))!;
@@ -244,14 +249,20 @@ describe.skipIf(!browser)('app', () => {
     expect(Bun.file(saved).size).toBe(blobSize);
     if (hasQpdf) expect(qpdfCheck(saved).code).toBe(0);
     expect(await noHorizontalScroll(page)).toBe(true);
+
+    // "View it" opens the result in place of the original.
+    await page.click('#compress-view');
+    await page.waitForFunction(() => document.getElementById('doc-name')?.textContent === 'fixture-compressed.pdf');
+    await page.waitForSelector('.page canvas', { timeout: 20_000 });
     expect(w.foreign).toEqual([]);
     expect(w.errors).toEqual([]);
     await context.close();
-  }, 45_000);
+  }, 60_000);
 
-  test('streams to the file picked with showSaveFilePicker', async () => {
+  // WebKit's origin-private file system has no createWritable(), which the stub needs.
+  test.skipIf(ENGINE === 'webkit')('streams to the file picked with showSaveFilePicker', async () => {
     const context = await browser!.newContext();
-    // Headless Chromium cannot show the native picker; hand out an OPFS file handle instead.
+    // Headless browsers cannot show the native picker; hand out an OPFS file handle instead.
     await context.addInitScript(() => {
       (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = async (o?: { suggestedName?: string }) =>
         (await navigator.storage.getDirectory()).getFileHandle(o?.suggestedName ?? 'out.pdf', { create: true });
@@ -283,28 +294,28 @@ describe.skipIf(!browser)('app', () => {
     if (hasQpdf) expect(qpdfCheck(out).code).toBe(0);
     expect(w.errors).toEqual([]);
     await context.close();
-  }, 45_000);
+  }, 60_000);
 
   test('cancel stops a run, and a non-PDF gets a readable error', async () => {
     const context = await browser!.newContext();
     const { page, w } = await openApp(context);
     await page.click('#compress-start');
-    await page.click('#compress-cancel');
-    await page.waitForFunction(() => {
-      const t = document.getElementById('compress-progress-text')?.textContent ?? '';
-      return t === 'Cancelled.' || t.startsWith('100%'); // the fixture is small; it may win the race
-    });
+    await page.click('#compress-cancel').catch(() => {}); // the fixture is small; it may win the race
+    await page.waitForFunction(() => document.getElementById('compress-progress-text')?.textContent === 'Cancelled.' || !document.getElementById('compress-report')?.hidden);
     expect(await page.isEnabled('#compress-start')).toBe(true);
 
     const junk = join(dir, 'junk.pdf');
     await writeFile(junk, 'this is not a PDF');
-    await page.setInputFiles('#compress-file', junk);
-    await page.click('#compress-start');
-    await page.waitForSelector('#compress-error', { state: 'visible', timeout: 15_000 });
-    expect(await page.textContent('#compress-error-text')).toContain('not a PDF');
+    await page.setInputFiles('#open-another', junk);
+    await page.waitForSelector('#viewer-message .error-text', { timeout: 15_000 });
+    expect(await page.textContent('#viewer-message')).toContain('not a PDF');
+    expect(await page.isDisabled('#compress-start')).toBe(true);
+    // Closing goes back to the start.
+    await page.click('#doc-close');
+    expect(await page.isVisible('#landing')).toBe(true);
     expect(w.errors).toEqual([]);
     await context.close();
-  }, 45_000);
+  }, 60_000);
 });
 
 if (!browser) test.skip(`site browser tests (${launch.skip})`, () => {});

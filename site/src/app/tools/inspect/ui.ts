@@ -1,28 +1,28 @@
 /**
- * The Inspect tool: what a PDF contains (./job.ts): metadata and flags, page sizes, bookmarks,
- * attachments, images, form fields and links. Images and attachments can be saved one by one.
+ * The Document section: what the open PDF contains (./job.ts), read as soon as it opens:
+ * metadata and flags, page sizes, bookmarks (which take the viewer to their page), attachments,
+ * images, form fields and links. Images and attachments can be saved one by one. When the file
+ * was encrypted, it says so and offers the decrypted copy the page works on.
  */
 import type { FormField, OutlineItem } from '../../../../../src/index.ts';
 import { download, info } from '../../../pages/icons.ts';
-import { describeError, el, fmtBytes, fmtDuration, fmtInt, refs } from '../../format.ts';
-import { Drop, dropHtml, Runner, statusHtml } from '../../kit.ts';
+import { describeError, el, fmtBytes, fmtInt, refs } from '../../format.ts';
+import { outputName, Runner, statusHtml } from '../../kit.ts';
 import type { Tool, ToolContext } from '../../tool.ts';
 import type { ExtractedFile, InspectOutput, PageSize, Section } from './job.ts';
 
 const TEMPLATE = `
-<div class="tool-layout">
-  <div class="stack">
-    <div class="card">${dropHtml('inspect')}</div>
-    ${statusHtml('inspect')}
-    <section class="card" id="inspect-document" data-ref="docCard" hidden tabindex="-1" aria-labelledby="inspect-document-heading">
-      <h2 id="inspect-document-heading">Document</h2>
-      <p id="inspect-tags" data-ref="tags"></p>
-      <table class="facts"><tbody id="inspect-facts" data-ref="facts"></tbody></table>
-      <details class="metadata" data-ref="xmp" hidden><summary data-ref="xmpSummary">XMP metadata</summary><pre data-ref="xmpText"></pre></details>
-    </section>
-  </div>
-  <div class="stack" id="inspect-sections" data-ref="sections"></div>
-</div>`;
+<div class="notice unlocked" id="inspect-unlocked" data-ref="unlocked" hidden>
+  <p data-ref="unlockedText"></p>
+  <a class="button" id="inspect-unlocked-download" data-ref="unlockedLink">${download}Download the decrypted copy</a>
+</div>
+${statusHtml('inspect')}
+<div id="inspect-document" data-ref="docCard" hidden>
+  <p class="tags" id="inspect-tags" data-ref="tags"></p>
+  <table class="facts"><tbody id="inspect-facts" data-ref="facts"></tbody></table>
+  <details class="metadata" data-ref="xmp" hidden><summary data-ref="xmpSummary">XMP metadata</summary><pre data-ref="xmpText"></pre></details>
+</div>
+<div class="sub-sections" id="inspect-sections" data-ref="sections"></div>`;
 
 const PAPER: [string, number, number][] = [
   ['A3', 842, 1191], ['A4', 595, 842], ['A5', 420, 595], ['Letter', 612, 792], ['Legal', 612, 1008], ['Tabloid', 792, 1224],
@@ -43,14 +43,14 @@ function pageSize(s: PageSize): string {
 const fmtDate = (d: Date): string => d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 const basename = (path: string): string => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 
-/** A section card appended to `parent`; returns its body. */
-function card(parent: HTMLElement, id: string, title: string, count?: number): HTMLElement {
-  const section = el('section', undefined, 'card');
+/** A collapsible sub-section appended to `parent`; returns its body. */
+function card(parent: HTMLElement, id: string, title: string, count?: number, open = false): HTMLElement {
+  const section = el('details', undefined, 'sub');
   section.id = `inspect-${id}`;
-  const h = el('h2', count === undefined ? title : `${title} (${fmtInt(count)})`);
-  h.id = `inspect-${id}-heading`;
-  section.setAttribute('aria-labelledby', h.id);
-  section.append(h);
+  section.open = open;
+  const summary = el('summary', count === undefined ? title : `${title} (${fmtInt(count)})`);
+  summary.id = `inspect-${id}-heading`;
+  section.append(summary);
   parent.append(section);
   return section;
 }
@@ -82,9 +82,17 @@ function table(headers: string[], rows: (string | Node)[][], numeric: number[] =
 function outlineList(items: OutlineItem[]): HTMLUListElement {
   const ul = el('ul');
   for (const it of items) {
-    const li = el('li', it.title || '(untitled)');
-    if (it.pageIndex !== undefined) li.append(el('span', `p. ${it.pageIndex + 1}`, 'target'));
-    else if (it.url) li.append(el('span', it.url, 'target'));
+    const li = el('li');
+    if (it.pageIndex !== undefined) {
+      // A bookmark with a page takes the viewer there.
+      const b = el('button', it.title || '(untitled)', 'link-button');
+      b.type = 'button';
+      b.dataset.page = String(it.pageIndex);
+      li.append(b, el('span', `p. ${it.pageIndex + 1}`, 'target'));
+    } else {
+      li.append(it.title || '(untitled)');
+      if (it.url) li.append(el('span', it.url, 'target'));
+    }
     if (it.children.length) li.append(outlineList(it.children));
     ul.append(li);
   }
@@ -102,15 +110,19 @@ const FIELD_TYPES: Record<FormField['type'], string> = { text: 'Text', checkbox:
 
 function mount(panel: HTMLElement, ctx: ToolContext): void {
   panel.insertAdjacentHTML('beforeend', TEMPLATE);
-  const r = refs(panel, ['docCard', 'tags', 'facts', 'xmp', 'xmpSummary', 'xmpText', 'sections'] as const);
+  const r = refs(panel, ['unlocked', 'unlockedText', 'unlockedLink', 'docCard', 'tags', 'facts', 'xmp', 'xmpSummary', 'xmpText', 'sections'] as const);
   let file: File | null = null;
-  const runner = new Runner(panel, ctx, () => (drop.disabled = runner.busy));
-  const drop = new Drop(panel, (files) => void inspect(files[0]));
+  let unlockedUrl: string | null = null;
+  const runner = new Runner(panel, ctx, () => {});
+  r.sections.addEventListener('click', (e) => {
+    const b = (e.target as Element).closest<HTMLElement>('button[data-page]');
+    if (b) ctx.goToPage(Number(b.dataset.page));
+  });
 
   /** The section's value, or a note in `body` saying why it is missing. */
   function unwrap<T>(s: Section<T>, body: HTMLElement): T | undefined {
     if ('value' in s) return s.value;
-    body.append(el('p', s.error.name === 'PdfEncryptedError' ? 'The document is encrypted: unlock it first to see this.' : `Could not be read: ${s.error.message}`, 'muted'));
+    body.append(el('p', s.error.name === 'PdfEncryptedError' ? 'The document is encrypted, so this could not be read.' : `Could not be read: ${s.error.message}`, 'muted'));
     return undefined;
   }
 
@@ -205,7 +217,7 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
 
     // Bookmarks
     const outline = 'value' in out.outline ? out.outline.value : undefined;
-    const outlineBody = card(root, 'outline', 'Bookmarks', outline?.total);
+    const outlineBody = card(root, 'outline', 'Bookmarks', outline?.total, !!outline?.total);
     if (outline) {
       if (!outline.total) outlineBody.append(el('p', 'None.', 'muted'));
       else {
@@ -295,29 +307,48 @@ function mount(panel: HTMLElement, ctx: ToolContext): void {
     } else unwrap(out.links, linkBody);
   };
 
-  const inspect = async (f: File): Promise<void> => {
-    if (runner.busy) return;
+  const inspect = async (f: File, shownAs: File): Promise<void> => {
     file = f;
     r.docCard.hidden = true;
     r.sections.textContent = '';
-    drop.show(f);
-    const out = await runner.run('Reading the document…', (signal) => ctx.worker.run('inspect', { file: f }, { signal }));
+    const out = await runner.run('Reading the document…', (signal) => ctx.worker.run('inspect', { file: f }, { signal }), { quiet: true });
     if (!out || file !== f) return;
-    runner.done(`Read in ${fmtDuration(out.ms)}.`);
-    runner.hideProgress();
-    showDocument(out, f);
+    showDocument(out, shownAs);
     showSections(out, f);
-    ctx.announce(`Done. ${fmtInt(out.info.pageCount)} pages.`);
-    r.docCard.focus({ preventScroll: true });
   };
+
+  let shown = -1;
+  ctx.doc.subscribe(() => {
+    const doc = ctx.doc.doc;
+    if (doc?.id === shown) return;
+    shown = doc?.id ?? -1;
+    if (unlockedUrl) URL.revokeObjectURL(unlockedUrl);
+    unlockedUrl = null;
+    r.unlocked.hidden = !doc?.unlocked;
+    if (doc?.unlocked) {
+      const how = doc.unlocked.method ? ` with ${doc.unlocked.method}` : '';
+      const pw = doc.unlocked.password === 'owner' ? 'the owner password' : doc.unlocked.password === 'user' && doc.probe.needsPassword ? 'its password' : '';
+      r.unlockedText.textContent = `This PDF is encrypted${how}. It was decrypted${pw ? ` with ${pw}` : ''} to show it, and the tools work on the decrypted copy.`;
+      unlockedUrl = URL.createObjectURL(doc.file);
+      const a = r.unlockedLink as HTMLAnchorElement;
+      a.href = unlockedUrl;
+      a.download = outputName(doc.original, 'decrypted');
+    }
+    if (doc) void inspect(doc.file, doc.original);
+    else {
+      file = null;
+      r.docCard.hidden = true;
+      r.sections.textContent = '';
+    }
+  });
 }
 
 const countItems = (items: OutlineItem[]): number => items.reduce((n, it) => n + 1 + countItems(it.children), 0);
 
 export const inspectTool: Tool = {
   id: 'inspect',
-  label: 'Inspect',
+  label: 'Document',
   icon: info,
-  summary: 'Metadata, pages, bookmarks, attachments, images, form fields and links. Save any image or attachment.',
+  summary: 'Metadata, bookmarks, attachments, images, fields.',
   mount,
 };

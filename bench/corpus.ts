@@ -94,7 +94,10 @@ class Writer {
   private chunks: Buffer[] = [];
   private fh: Awaited<ReturnType<typeof open>> | null = null;
   num = 3;
-  constructor(readonly path: string) {}
+  readonly path: string;
+  constructor(path: string) {
+    this.path = path;
+  }
   async start(): Promise<void> {
     this.fh = await open(this.path, 'w');
     await this.put('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n');

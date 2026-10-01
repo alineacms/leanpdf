@@ -10,6 +10,11 @@ API cleanup before 1.0 (breaking):
 - compressPdfBlob's options are optional.
 - leanpdf/canvas no longer exports `useNapiCanvas` (its functions set up the canvas themselves).
 
+Also:
+
+- Website: the app is the front page. Open a PDF (or the sample) and it is shown as a document, its pages rendered as they scroll into view, with the tools next to it; results open in the viewer. Encrypted files are decrypted on opening, asking for the password when one is needed.
+- The browser tests run in Firefox and WebKit too.
+
 ## 0.4.0
 
 Rendering now works in Node and Bun too, with @napi-rs/canvas as an optional dependency (like sharp for compressing), and the CLI gains a render command.

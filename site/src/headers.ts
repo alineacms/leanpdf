@@ -3,9 +3,8 @@
  * (https://developers.cloudflare.com/pages/configuration/headers/), plus a parser and matcher
  * implementing the same rules, so the dev server and the tests serve exactly what Pages will.
  *
- * Every response is cross-origin isolated (COOP + COEP), which the app needs for
- * performance.measureUserAgentSpecificMemory(). The site loads nothing from other origins, so
- * that costs nothing. The Content-Security-Policy also keeps it that way: no third-party
+ * Every response is cross-origin isolated (COOP + COEP), so the app runs in a process of its own
+ * with full-resolution timers. The site loads nothing from other origins, so that costs nothing. The Content-Security-Policy also keeps it that way: no third-party
  * scripts, styles, fonts, images or connections.
  */
 

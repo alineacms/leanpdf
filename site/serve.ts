@@ -27,6 +27,7 @@ const TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.ico': 'image/x-icon',
   '.xml': 'application/xml',
+  '.pdf': 'application/pdf',
 };
 
 /** Where the files come from: the dist directory, or an in-memory build. */

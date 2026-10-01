@@ -1,7 +1,7 @@
 /**
- * The website's app tools other than Compress (site.test.ts covers that one): Inspect, Text,
- * Pages & cleanup, Merge and Unlock, driven in headless Chromium against the built site, with
- * their outputs checked by the library itself.
+ * The front page's viewer and toolbox other than Compress (site.test.ts covers that one):
+ * the document view, Document, Text, Pages & cleanup and Merge, and opening encrypted files,
+ * driven in a headless browser against the built site, with their outputs checked by the library.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -12,6 +12,7 @@ import type { Page } from 'playwright-core';
 import { buildSite, writeSite } from '../../site/build.ts';
 import { startSiteServer, type SiteServer } from '../../site/serve.ts';
 import { extractText, getInfo, getPages, openPdf } from '../../src/index.ts';
+import { DocBuilder, drawText } from '../support/pdfgen.ts';
 import { buildDocFixture, buildFixturePdf } from './fixture.ts';
 import { hasQpdf, launchBrowser, qpdfCheck } from './harness.ts';
 
@@ -21,7 +22,9 @@ const browser = launch.browser;
 let dir = '';
 let docPath = '';
 let imagesPath = '';
+let longPath = '';
 let encPath = '';
+let openEncPath = '';
 let server: SiteServer | undefined;
 
 beforeAll(async () => {
@@ -32,10 +35,18 @@ beforeAll(async () => {
   await writeFile(docPath, buildDocFixture());
   imagesPath = join(dir, 'fixture.pdf');
   await writeFile(imagesPath, (await buildFixturePdf()).bytes);
+  // 60 pages, to see that only the pages near the view are rendered.
+  const long = new DocBuilder();
+  for (let i = 0; i < 60; i++) long.page({ content: drawText(`Page ${i + 1}`, 72, 760, 24) });
+  longPath = join(dir, 'long.pdf');
+  await writeFile(longPath, long.finish().build().bytes);
   if (hasQpdf) {
     encPath = join(dir, 'locked.pdf');
-    const r = spawnSync('qpdf', ['--encrypt', 'user-pw', 'owner-pw', '256', '--', docPath, encPath]);
-    if (r.status !== 0) throw new Error(`qpdf --encrypt failed: ${r.stderr}`);
+    openEncPath = join(dir, 'restricted.pdf');
+    for (const [user, out] of [['user-pw', encPath], ['', openEncPath]]) {
+      const r = spawnSync('qpdf', ['--encrypt', user, 'owner-pw', '256', '--', docPath, out]);
+      if (r.status !== 0) throw new Error(`qpdf --encrypt failed: ${r.stderr}`);
+    }
   }
 }, 60_000);
 
@@ -45,16 +56,19 @@ afterAll(async () => {
   if (dir) await rm(dir, { recursive: true, force: true });
 }, 20_000);
 
-async function openTool(tool: string): Promise<{ page: Page; errors: string[] }> {
+/** The front page with `path` opened, and `tool`'s section expanded. */
+async function openDoc(path: string, tool?: string): Promise<{ page: Page; errors: string[] }> {
   const page = await browser!.newPage({ viewport: { width: 1280, height: 900 } });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`console: ${m.text()}`);
   });
-  await page.goto(new URL(`/app/#${tool}`, server!.url).href);
+  await page.goto(server!.url);
   await page.waitForSelector('#app[data-state="ready"]');
-  expect(await page.getAttribute(`#tab-${tool}`, 'aria-selected')).toBe('true');
+  await page.setInputFiles('#open-file', path);
+  await page.waitForSelector('#workspace', { state: 'visible' });
+  if (tool && (await page.getAttribute(`#tool-${tool}`, 'open')) === null) await page.click(`#tool-${tool} > summary`);
   return { page, errors };
 }
 
@@ -71,23 +85,56 @@ async function linkBytes(page: Page, selector: string): Promise<Uint8Array> {
   return new Uint8Array(Buffer.from(b64, 'base64'));
 }
 
-async function pageTexts(bytes: Uint8Array): Promise<string[]> {
+async function pageTexts(data: Uint8Array): Promise<string[]> {
   const out: string[] = [];
-  for await (const p of extractText(await openPdf(new Blob([bytes as Uint8Array<ArrayBuffer>])))) out.push(p.text);
+  for await (const p of extractText(await openPdf(data))) out.push(p.text);
   return out;
 }
 
-async function checkValid(bytes: Uint8Array, name: string): Promise<void> {
+async function checkValid(data: Uint8Array, name: string): Promise<void> {
   if (!hasQpdf) return;
   const path = join(dir, name);
-  await writeFile(path, bytes);
+  await writeFile(path, data);
   expect(qpdfCheck(path).code).toBe(0);
 }
 
+const rendered = (page: Page): Promise<number[]> =>
+  page.locator('.page:has(canvas)').evaluateAll((els) => els.map((e) => Number((e as HTMLElement).dataset.page)));
+
 describe.skipIf(!browser)('app tools', () => {
-  test('Inspect shows metadata and every section, and saves attachments and images', async () => {
-    const { page, errors } = await openTool('inspect');
-    await page.setInputFiles('#inspect-file', docPath);
+  test('the viewer lays out every page, renders those near the view, zooms and follows the scroll', async () => {
+    const { page, errors } = await openDoc(longPath);
+    await page.waitForSelector('.page canvas', { timeout: 15_000 });
+    expect(await page.locator('.page').count()).toBe(60);
+    expect(await page.textContent('#view-count')).toBe('60');
+    await page.waitForTimeout(500);
+    // Only pages around the view, not all 60.
+    const first = await rendered(page);
+    expect(first).toContain(0);
+    expect(first.length).toBeLessThan(15);
+    // Jumping to a page renders it and drops the ones far behind.
+    await page.fill('#view-page', '50');
+    await page.press('#view-page', 'Enter');
+    await page.waitForFunction(() => document.querySelector('.page[data-page="49"] canvas'), undefined, { timeout: 15_000 });
+    await page.waitForTimeout(500);
+    const later = await rendered(page);
+    expect(later).toContain(49);
+    expect(later).not.toContain(0);
+    expect(await page.inputValue('#view-page')).toBe('50');
+    // Zooming resizes the pages; Fit puts them back.
+    const width = () => page.locator('.page').first().evaluate((e) => (e as HTMLElement).getBoundingClientRect().width);
+    const fit = await width();
+    await page.click('#zoom-in');
+    expect(await page.textContent('#zoom-fit')).toMatch(/%$/);
+    expect(await width()).not.toBe(fit);
+    await page.click('#zoom-fit');
+    expect(await width()).toBe(fit);
+    expect(errors).toEqual([]);
+    await page.close();
+  }, 45_000);
+
+  test('Document shows metadata and every section; bookmarks go to their page; attachments and images save', async () => {
+    const { page, errors } = await openDoc(docPath, 'inspect');
     await page.waitForSelector('#inspect-document', { state: 'visible', timeout: 15_000 });
     const facts = await page.textContent('#inspect-facts');
     expect(facts).toContain('Quarterly invoices');
@@ -104,7 +151,12 @@ describe.skipIf(!browser)('app tools', () => {
     expect(await page.textContent('#inspect-fields')).toContain('Ada Lovelace');
     expect(await page.textContent('#inspect-links')).toContain('https://example.com/terms');
     expect(await page.textContent('#inspect-images-heading')).toBe('Images (0)');
+    expect(await page.isVisible('#inspect-unlocked')).toBe(false);
 
+    await page.click('#inspect-outline button:has-text("Summary")');
+    await page.waitForFunction(() => (document.getElementById('view-page') as HTMLInputElement).value === '3', undefined, { timeout: 5_000 });
+
+    await page.click('#inspect-attachments > summary');
     const [att] = await Promise.all([page.waitForEvent('download'), page.click('#inspect-attachments button')]);
     expect(att.suggestedFilename()).toBe('notes.txt');
     const attPath = join(dir, 'notes.txt');
@@ -112,8 +164,9 @@ describe.skipIf(!browser)('app tools', () => {
     expect(await readFile(attPath, 'utf8')).toBe('hello world\n');
 
     // Images: JPEG as stored, Flate as PNG.
-    await page.setInputFiles('#inspect-file', imagesPath);
+    await page.setInputFiles('#open-another', imagesPath);
     await page.waitForFunction(() => document.getElementById('inspect-images-heading')?.textContent === 'Images (4)', undefined, { timeout: 15_000 });
+    await page.click('#inspect-images > summary');
     const [jpg] = await Promise.all([page.waitForEvent('download'), page.click('button[aria-label="Save image 4"]')]);
     expect(jpg.suggestedFilename()).toBe('fixture-image-4.jpg');
     const [png] = await Promise.all([page.waitForEvent('download'), page.click('button[aria-label="Save image 10"]')]);
@@ -126,9 +179,8 @@ describe.skipIf(!browser)('app tools', () => {
     await page.close();
   }, 45_000);
 
-  test('Text extracts chosen pages, finds words and offers a .txt', async () => {
-    const { page, errors } = await openTool('text');
-    await page.setInputFiles('#text-file', docPath);
+  test('Text extracts chosen pages, finds words (a match shows its page) and offers a .txt', async () => {
+    const { page, errors } = await openDoc(docPath, 'text');
     await page.waitForFunction(() => document.getElementById('text-pages-note')?.textContent === 'All 3 pages.');
     await page.fill('#text-pages', '2-1');
     expect(await page.textContent('#text-pages-note')).toBe('2 pages of 3.');
@@ -139,6 +191,8 @@ describe.skipIf(!browser)('app tools', () => {
     await page.fill('#text-find', 'INVOICES');
     expect(await page.textContent('#text-find-note')).toBe('2 matches on 2 pages.');
     expect(await page.locator('#text-hits mark').count()).toBe(2);
+    await page.click('#text-hits li[data-page="1"]');
+    await page.waitForFunction(() => (document.getElementById('view-page') as HTMLInputElement).value === '2', undefined, { timeout: 5_000 });
     expect(await page.getAttribute('#text-download', 'download')).toBe('doc.txt');
     expect(new TextDecoder().decode(await linkBytes(page, '#text-download'))).toBe(text);
     // A page that doesn't exist is caught before anything runs.
@@ -149,13 +203,12 @@ describe.skipIf(!browser)('app tools', () => {
   }, 45_000);
 
   test('Pages & cleanup keeps, reorders and rotates pages and strips what was asked', async () => {
-    const { page, errors } = await openTool('edit');
-    await page.setInputFiles('#edit-file', docPath);
-    await page.waitForFunction(() => document.getElementById('edit-keep-note')?.textContent === 'All 3 pages, in their order.');
+    const { page, errors } = await openDoc(docPath, 'edit');
+    await page.waitForFunction(() => document.getElementById('edit-keep-note')?.textContent === 'All 3 pages.');
     await page.fill('#edit-keep', '1,1');
     expect(await page.textContent('#edit-keep-note')).toBe('Page 1 is listed twice; each page can be kept once.');
     await page.fill('#edit-keep', '3, 1');
-    expect(await page.textContent('#edit-keep-note')).toBe('The result has 2 pages, 1 removed.');
+    expect(await page.textContent('#edit-keep-note')).toBe('2 pages, 1 removed.');
     expect(await page.isDisabled('#edit-rotate-pages')).toBe(true);
     await page.selectOption('#edit-rotate', '90');
     await page.fill('#edit-rotate-pages', '1');
@@ -167,24 +220,29 @@ describe.skipIf(!browser)('app tools', () => {
     const out = await linkBytes(page, '#edit-download');
     await checkValid(out, 'edited.pdf');
     expect(await pageTexts(out)).toEqual(['Gamma page three', 'Alpha page one about invoices']);
-    const doc = await openPdf(new Blob([out as Uint8Array<ArrayBuffer>]));
+    const doc = await openPdf(out);
     expect((await getPages(doc)).map((p) => p.rotate)).toEqual([0, 90]);
     const info = await getInfo(doc);
     expect(info.title).toBeUndefined();
     expect(info.hasJavaScript).toBe(false);
     expect(info.attachments).toBe(0);
+    // The result opens in the viewer.
+    await page.click('#edit-view');
+    await page.waitForFunction(() => document.getElementById('view-count')?.textContent === '2', undefined, { timeout: 15_000 });
+    expect(await page.textContent('#doc-name')).toBe('doc-edited.pdf');
     expect(errors).toEqual([]);
     await page.close();
   }, 45_000);
 
-  test('Merge combines files in the listed order with page selections', async () => {
-    const { page, errors } = await openTool('merge');
-    await page.setInputFiles('#merge-file', [docPath, imagesPath]);
+  test('Merge adds files before or after the open one, with page selections', async () => {
+    const { page, errors } = await openDoc(docPath, 'merge');
+    await page.waitForFunction(() => document.querySelectorAll('#merge-list li').length === 1);
+    await page.setInputFiles('#merge-file', imagesPath);
     await page.waitForFunction(() => document.getElementById('merge-total')?.textContent?.includes('the result has 5 pages'), undefined, { timeout: 15_000 });
     // Take only page 2 of doc.pdf, then put fixture.pdf first.
     await page.fill('#merge-list li:nth-child(1) input', '2');
     await page.click('#merge-list li:nth-child(2) [data-action="up"]');
-    expect(await page.locator('#merge-list .name').evaluateAll((els) => els.map((e) => e.firstChild?.textContent))).toEqual(['fixture.pdf', 'doc.pdf']);
+    expect(await page.locator('#merge-list .name').evaluateAll((els) => els.map((e) => e.firstChild?.textContent))).toEqual(['fixture.pdf', 'doc.pdf (open)']);
     expect(await page.textContent('#merge-total')).toContain('the result has 3 pages');
     await page.click('#merge-start');
     await page.waitForSelector('#merge-report', { state: 'visible', timeout: 30_000 });
@@ -196,61 +254,31 @@ describe.skipIf(!browser)('app tools', () => {
     await page.close();
   }, 45_000);
 
-  test('View renders pages and navigates between them', async () => {
-    const { page, errors } = await openTool('view');
-    await page.setInputFiles('#view-file', docPath);
-    await page.waitForFunction(() => document.getElementById('view-canvas')?.dataset.page === '0', undefined, { timeout: 15_000 });
-    expect(await page.textContent('#view-count')).toBe('3');
-    expect(await page.evaluate(() => (document.getElementById('view-canvas') as HTMLCanvasElement).width)).toBeGreaterThan(300);
-    // The first page also reports reading the file into memory and opening it.
-    expect(await page.textContent('#view-status')).toMatch(/^Rendered in \d+ ms \(file read in \d+ ms, opened in \d+ ms\)$/);
-    await page.click('#view-next');
-    await page.waitForFunction(() => document.getElementById('view-canvas')?.dataset.page === '1', undefined, { timeout: 15_000 });
-    expect(await page.inputValue('#view-page')).toBe('2');
-    expect(await page.textContent('#view-status')).toMatch(/^Rendered in \d+ ms$/);
-
-    // A new height alone (a phone's address bar) doesn't render again; a new width does.
-    await page.evaluate(() => {
-      const seen: string[] = ((globalThis as unknown as { seen: string[] }).seen = []);
-      new MutationObserver(() => seen.push(document.getElementById('view-status')!.textContent ?? '')).observe(document.getElementById('view-status')!, { childList: true, characterData: true, subtree: true });
-    });
-    const size = page.viewportSize()!;
-    await page.setViewportSize({ width: size.width, height: size.height - 120 });
-    await page.waitForTimeout(500);
-    expect(await page.evaluate(() => (globalThis as unknown as { seen: string[] }).seen)).toEqual([]);
-    await page.setViewportSize({ width: 480, height: size.height - 120 });
-    await page.waitForFunction(() => (globalThis as unknown as { seen: string[] }).seen.includes('Rendering…'), undefined, { timeout: 5_000 });
-    expect(await page.isVisible('#view-error')).toBe(false);
-    expect(errors).toEqual([]);
-    await page.close();
-  }, 45_000);
-
-  test.skipIf(!hasQpdf)('Unlock asks for the password and writes an unencrypted copy', async () => {
-    const { page, errors } = await openTool('unlock');
-    await page.setInputFiles('#unlock-file', encPath);
-    await page.waitForFunction(() => document.getElementById('unlock-state')?.textContent?.includes('needs a password'), undefined, { timeout: 15_000 });
-    await page.fill('#unlock-password', 'wrong');
-    await page.click('#unlock-start');
-    await page.waitForSelector('#unlock-error', { state: 'visible', timeout: 15_000 });
-    expect(await page.textContent('#unlock-error-text')).toContain('not correct');
-    await page.fill('#unlock-password', 'owner-pw');
-    await page.click('#unlock-start');
-    await page.waitForSelector('#unlock-report', { state: 'visible', timeout: 15_000 });
-    expect(await page.isVisible('#unlock-error')).toBe(false);
-    expect(await page.textContent('#unlock-facts [data-fact="method"] td')).toBe('AES-256 (R6)');
-    expect(await page.textContent('#unlock-facts [data-fact="password"] td')).toBe('the owner password');
-    const out = await linkBytes(page, '#unlock-download');
+  test.skipIf(!hasQpdf)('a PDF that needs a password asks for it; one that does not opens decrypted', async () => {
+    const { page, errors } = await openDoc(encPath, 'inspect');
+    await page.waitForSelector('#doc-password', { timeout: 15_000 });
+    await page.fill('#doc-password', 'wrong');
+    await page.click('#doc-password-submit');
+    await page.waitForFunction(() => document.getElementById('doc-password-error')?.textContent?.includes('not correct'), undefined, { timeout: 15_000 });
+    await page.fill('#doc-password', 'owner-pw');
+    await page.click('#doc-password-submit');
+    await page.waitForSelector('.page canvas', { timeout: 15_000 });
+    await page.waitForSelector('#inspect-unlocked', { state: 'visible' });
+    expect(await page.textContent('#inspect-unlocked')).toContain('AES-256 (R6)');
+    expect(await page.textContent('#inspect-unlocked')).toContain('owner password');
+    const out = await linkBytes(page, '#inspect-unlocked-download');
     await checkValid(out, 'unlocked.pdf');
-    expect((await getInfo(await openPdf(new Blob([out as Uint8Array<ArrayBuffer>])))).encrypted).toBe(false);
+    expect((await getInfo(await openPdf(out))).encrypted).toBe(false);
     expect(await pageTexts(out)).toEqual(['Alpha page one about invoices', 'Beta page two mentions invoices again', 'Gamma page three']);
 
-    // Other tools point encrypted files here.
-    await page.goto(new URL('/app/#text', server!.url).href);
-    await page.waitForSelector('#app[data-state="ready"]');
-    await page.setInputFiles('#text-file', encPath);
-    await page.waitForSelector('#text-error', { state: 'visible', timeout: 15_000 });
-    expect(await page.textContent('#text-error-text')).toContain('Unlock');
-    expect(await page.isDisabled('#text-start')).toBe(true);
+    // Encrypted without a user password: opened straight away, the tools work on the decrypted copy.
+    await page.setInputFiles('#open-another', openEncPath);
+    await page.waitForSelector('.page canvas', { timeout: 15_000 });
+    await page.waitForSelector('#inspect-unlocked', { state: 'visible' });
+    await page.click('#tool-text > summary');
+    await page.click('#text-start');
+    await page.waitForSelector('#text-report', { state: 'visible', timeout: 15_000 });
+    expect(await page.inputValue('#text-output')).toContain('Gamma page three');
     expect(errors).toEqual([]);
     await page.close();
   }, 45_000);
