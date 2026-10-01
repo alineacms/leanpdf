@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+Every function now takes the same kinds of input and output, and the website opens your PDF first and puts the tools next to it.
 
 API cleanup before 1.0 (breaking):
 
