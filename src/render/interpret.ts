@@ -17,7 +17,7 @@ import { loadFunction } from './function.ts';
 import { loadImage, type CachedImage, type ImageCache, type ImageDict } from './image.ts';
 import { maskToAlpha, paintShading, setT } from './paint.ts';
 import { loadShading, type ShadingPaint } from './shading.ts';
-import { asMatrix, blendMode, canvas, css, IDENTITY, intersect, invert, mul, pixelBox, scaleOf, transformBox, type Box, type Canvas, type Ctx, type Matrix } from './util.ts';
+import { asMatrix, blendMode, canvas, css, domMatrix, IDENTITY, intersect, invert, mul, path2d, pixelBox, scaleOf, transformBox, type Box, type Canvas, type Ctx, type Matrix } from './util.ts';
 
 type Ctx2D = Ctx | CanvasRenderingContext2D;
 
@@ -142,7 +142,7 @@ export class Interpreter {
   private tm: Matrix = IDENTITY;
   private tlm: Matrix = IDENTITY;
   private textClip: Path2D | null = null;
-  private path = new Path2D();
+  private path = path2d();
   private pathBox: Box = [Infinity, Infinity, -Infinity, -Infinity];
   private cx = 0;
   private cy = 0;
@@ -430,7 +430,7 @@ export class Interpreter {
     const pat = ctx.createPattern(cell.canvas, 'repeat');
     if (!pat) return;
     const t = mul(cell.toPattern, m);
-    pat.setTransform(new DOMMatrix([t[0], t[1], t[2], t[3], t[4] - this.target.ox, t[5] - this.target.oy]));
+    pat.setTransform(domMatrix([t[0], t[1], t[2], t[3], t[4] - this.target.ox, t[5] - this.target.oy]));
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = pat;
@@ -716,7 +716,7 @@ export class Interpreter {
   }
 
   private clipRect(b: number[]): void {
-    const p = new Path2D();
+    const p = path2d();
     p.rect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
     this.clip(p, 'nonzero', transformBox(b, this.gs.ctm));
   }
@@ -761,8 +761,8 @@ export class Interpreter {
           if (p) {
             if (outline || clips) {
               box = unionBox(box, transformBox([-0.2, -0.4, 1.5, 1.2], dev));
-              collected ??= new Path2D();
-              collected.addPath(p, new DOMMatrix(mul(f.matrix, trm)));
+              collected ??= path2d();
+              collected.addPath(p, domMatrix(mul(f.matrix, trm)));
             }
             if (draws && !outline) {
               ctx.globalAlpha = g.ca;
@@ -784,9 +784,9 @@ export class Interpreter {
       if (mode === 1 || mode === 2 || mode === 5 || mode === 6) await this.strokePath(collected, box, run);
     }
     if (clips) {
-      const dev = new Path2D();
-      dev.addPath(collected, new DOMMatrix(g.ctm));
-      (this.textClip ??= new Path2D()).addPath(dev);
+      const dev = path2d();
+      dev.addPath(collected, domMatrix(g.ctm));
+      (this.textClip ??= path2d()).addPath(dev);
       this.textClipBox = unionBox(this.textClipBox, box);
     }
   }
@@ -993,7 +993,7 @@ export class Interpreter {
   }
 
   private newPath(): void {
-    this.path = new Path2D();
+    this.path = path2d();
     this.pathBox = [Infinity, Infinity, -Infinity, -Infinity];
   }
 

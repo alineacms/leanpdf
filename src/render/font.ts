@@ -15,7 +15,7 @@ import { parseCFF } from './fonts/cff.ts';
 import { CLOSE, CUBIC, LINE, MOVE, QUAD, type FontProgram } from './fonts/program.ts';
 import { parseTrueType } from './fonts/truetype.ts';
 import { parseType1 } from './fonts/type1.ts';
-import { asMatrix, type Matrix } from './util.ts';
+import { asMatrix, path2d, type Matrix } from './util.ts';
 
 export interface RenderFont extends Font {
   /** Maps glyph space to text space. */
@@ -38,7 +38,7 @@ const MAX_PATHS = 8192;
 /** Build a Path2D from an outline. */
 function toPath(o: number[]): Path2D | null {
   if (!o.length) return null;
-  const p = new Path2D();
+  const p = path2d();
   for (let i = 0; i < o.length; ) {
     switch (o[i++]) {
       case MOVE:
@@ -111,18 +111,21 @@ async function symbolText(doc: PdfDocument, d: PdfDict, name: string, text: (cod
   };
 }
 
-/** CSS for a font that isn't embedded, from its name and descriptor flags. */
+/**
+ * CSS for a font that isn't embedded, from its name and descriptor flags. The lists name the
+ * metric-compatible Linux fonts too, for canvas libraries that don't apply fontconfig's aliases.
+ */
 function systemFont(base: string, flags: number, weight: number | undefined): (size: number) => string {
   const n = base.toLowerCase();
   const family = /courier|mono|consol/.test(n)
-    ? '"Courier New",Courier,monospace'
+    ? '"Courier New",Courier,"Liberation Mono","Nimbus Mono PS",monospace'
     : /symbol/.test(n)
-      ? 'Symbol,serif'
+      ? 'Symbol,"Standard Symbols PS",serif'
       : /dingbat/.test(n)
-        ? '"Zapf Dingbats",serif'
+        ? '"Zapf Dingbats",D050000L,serif'
         : (/times|roman|serif|georgia|garamond|minion|book|mincho|song|ming/.test(n) && !/sans/.test(n)) || (flags & 2 && !/sans|arial|helv/.test(n))
-          ? '"Times New Roman",Times,serif'
-          : 'Helvetica,Arial,sans-serif';
+          ? '"Times New Roman",Times,"Liberation Serif","Nimbus Roman",serif'
+          : 'Helvetica,Arial,"Liberation Sans","Nimbus Sans",sans-serif';
   const bold = /bold|black|heavy|semibold|demi/.test(n) || flags & 0x40000 || (weight ?? 0) >= 600;
   const italic = /italic|oblique/.test(n) || flags & 0x40;
   return (size) => `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px ${family}`;

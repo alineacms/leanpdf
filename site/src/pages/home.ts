@@ -95,7 +95,7 @@ export function homePage(assets: Assets, bench: BenchData | null, bundle: Bundle
       <div class="install" aria-label="Install command">
         <span class="prompt" aria-hidden="true">$</span><code id="install-cmd">npm install leanpdf</code>
       </div>
-      <p class="small muted">Add <code>sharp</code> for Node and the CLI.</p>
+      <p class="small muted">In Node and the CLI, add <code>sharp</code> to compress and <code>@napi-rs/canvas</code> to render.</p>
     </div>
     <div class="hero-code">
       ${codeBlock(BROWSER_EXAMPLE, 'ts', 'Compress, in a browser or Web Worker')}

@@ -4,7 +4,7 @@
  * Function-based and mesh shadings arrive rasterized from ./shading.ts.
  */
 import type { ShadingPaint } from './shading.ts';
-import { canvas, css, intersect, invert, mul, pixelBox, transformBox, type Box, type Ctx, type Matrix } from './util.ts';
+import { canvas, css, env, intersect, invert, mul, pixelBox, transformBox, type Box, type Ctx, type Matrix } from './util.ts';
 
 const FAR = 1e5;
 /** Largest rasterized shading, in pixels. */
@@ -41,7 +41,7 @@ export function paintShading(ctx: Ctx2D, sp: ShadingPaint, m: Matrix, box: Box, 
       const h = pb[3] - pb[1];
       const data = sp.render(mul(m, [1, 0, 0, 1, -pb[0], -pb[1]]), w, h);
       const [c, cctx] = canvas(w, h);
-      cctx.putImageData(new ImageData(data as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
+      cctx.putImageData(new (env().ImageData)(data as Uint8ClampedArray<ArrayBuffer>, w, h), 0, 0);
       ctx.setTransform(1, 0, 0, 1, -ox, -oy);
       ctx.drawImage(c, pb[0], pb[1]);
     }

@@ -1,7 +1,7 @@
 /**
- * Render tests: leanpdf's renderer runs in headless Chromium, MuPDF renders the same page as the
- * reference, and the two rasters are compared. Set RENDER_DEBUG=<dir> to write both renders and
- * their difference as PNGs.
+ * Render tests: leanpdf's renderer runs in headless Chromium (or in this process with
+ * @napi-rs/canvas), MuPDF renders the same page as the reference, and the two rasters are
+ * compared. Set RENDER_DEBUG=<dir> to write both renders and their difference as PNGs.
  */
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -42,15 +42,7 @@ export async function startSession(): Promise<Session | { skip: string }> {
         [b64, index, opts] as const,
       )) as { width: number; height: number; rgba: string; warnings: string[]; ms: number };
       if (errors.length) throw new Error(errors.join('\n'));
-      const rgba = Buffer.from(r.rgba, 'base64');
-      const rgb = new Uint8Array(r.width * r.height * 3);
-      for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
-        // Composite over white (the renderer paints a white background unless asked not to).
-        const a = rgba[i + 3] / 255;
-        rgb[j] = rgba[i] * a + 255 * (1 - a);
-        rgb[j + 1] = rgba[i + 1] * a + 255 * (1 - a);
-        rgb[j + 2] = rgba[i + 2] * a + 255 * (1 - a);
-      }
+      const rgb = overWhite(Buffer.from(r.rgba, 'base64'), r.width, r.height);
       return { width: r.width, height: r.height, rgb, warnings: r.warnings, ms: r.ms };
     },
     async close() {
@@ -58,6 +50,42 @@ export async function startSession(): Promise<Session | { skip: string }> {
       await server.close();
       await launch.close?.();
     },
+  };
+}
+
+/** RGBA composited over white (the renderer paints a white background unless asked not to). */
+function overWhite(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): Uint8Array {
+  const rgb = new Uint8Array(width * height * 3);
+  for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+    const a = rgba[i + 3] / 255;
+    rgb[j] = rgba[i] * a + 255 * (1 - a);
+    rgb[j + 1] = rgba[i + 1] * a + 255 * (1 - a);
+    rgb[j + 2] = rgba[i + 2] * a + 255 * (1 - a);
+  }
+  return rgb;
+}
+
+/** The renderer in this process, with @napi-rs/canvas (leanpdf/canvas), as in Node and Bun. */
+export async function startNodeSession(): Promise<Session | { skip: string }> {
+  let canvas: typeof import('../../src/canvas.ts');
+  try {
+    canvas = await import('../../src/canvas.ts');
+  } catch (e) {
+    const skip = `render tests (@napi-rs/canvas): SKIPPED, ${e instanceof Error ? e.message.split('\n')[0] : e}`;
+    console.warn(skip);
+    return { skip };
+  }
+  const { openPdf } = await import('../../src/core/open.ts');
+  return {
+    async ours(pdf, index = 0, opts = {}) {
+      const doc = await openPdf(pdf);
+      const t0 = performance.now();
+      const r = await canvas.renderPage(doc, index, undefined, opts);
+      const ms = performance.now() - t0;
+      const rgba = r.canvas.getContext('2d').getImageData(0, 0, r.width, r.height).data;
+      return { width: r.width, height: r.height, rgb: overWhite(rgba, r.width, r.height), warnings: r.warnings, ms };
+    },
+    async close() {},
   };
 }
 

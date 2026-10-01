@@ -39,10 +39,12 @@ The other features on `large.pdf` (601 MB), wall time and peak RSS:
 
 ```sh
 npm install leanpdf          # or: bun add leanpdf
-npm install sharp            # only for the server codec / CLI
+npm install sharp            # only to compress in Node and Bun, or with the CLI
+npm install @napi-rs/canvas  # only to render in Node and Bun, or with the CLI
 ```
 
-ESM only. Runs in modern browsers, Node 18.17+ and Bun (the sharp codec needs what sharp needs).
+ESM only. Runs in modern browsers, Node 18.17+ and Bun (sharp and @napi-rs/canvas need what
+they need; both ship prebuilt binaries).
 
 ## Compressing
 
@@ -167,7 +169,29 @@ memory, opening its bytes saves those too.
 | `signal` | | AbortSignal |
 
 Not supported yet: JBIG2 images (listed in `warnings`), non-embedded CJK fonts
-with predefined CMaps, knockout groups, overprint and ICC profiles. Node has no canvas.
+with predefined CMaps, knockout groups, overprint and ICC profiles.
+
+### In Node and Bun
+
+Node has no canvas of its own; `leanpdf/canvas` renders with
+[@napi-rs/canvas](https://github.com/Brooooooklyn/canvas) (Skia, the engine Chrome draws with),
+an optional dependency like sharp:
+
+```ts
+import { writeFile } from 'node:fs/promises';
+import { openPdf } from 'leanpdf';
+import { NodeFileSource } from 'leanpdf/node';
+import { renderPageImage } from 'leanpdf/canvas';
+
+const doc = await openPdf(await NodeFileSource.open('in.pdf'));
+const { data } = await renderPageImage(doc, 0, { scale: 2, format: 'png' }); // or 'jpeg', 'webp' with quality
+await writeFile('page-1.png', data);
+```
+
+`renderPage(doc, index, canvas?, options)` from `leanpdf/canvas` draws onto a @napi-rs/canvas
+Canvas instead (a new one when omitted) and returns it with the result. Pages render as in the
+browser; fonts that aren't embedded come from the system's (on Linux, Liberation or the URW
+fonts stand in for Helvetica, Times and Courier).
 
 ## Editing
 
@@ -223,7 +247,8 @@ tried by default. A wrong one throws `PdfPasswordError`. Public-key encryption i
 
 ## Command line
 
-Needs sharp. Page numbers are 1-based (`3,1-2,5-`).
+compress and images --extract need sharp, render needs @napi-rs/canvas. Page numbers are
+1-based (`3,1-2,5-`).
 
 | Command | |
 |---|---|
@@ -238,6 +263,7 @@ Needs sharp. Page numbers are 1-based (`3,1-2,5-`).
 | `rotate <in> <out> <degrees> [--pages 1,3]` | rotate pages clockwise |
 | `merge <out> <in>[:pages]...` | concatenate PDFs |
 | `decrypt <in> <out> [--password <pw>]` | remove encryption |
+| `render <in> <out.png> [--pages 1-3] [--dpi 144]` | render pages to PNG, JPEG or WebP (by extension); several pages become `out-1.png`, `out-2.png`, ...; `--width`/`--height` fit pages instead, `-q` sets JPEG and WebP quality |
 | `repair <in> <out>` | rebuild the index and fix broken streams |
 
 Every command takes `--json` and `--quiet`.
@@ -283,6 +309,7 @@ Errors (`PdfError` subclasses): `PdfEncryptedError`, `PdfPasswordError`, `PdfFor
 | `leanpdf` | everything that runs in a browser |
 | `leanpdf/node` | `NodeFileSource`, `NodeFileSink`, `compressPdfFile` |
 | `leanpdf/sharp` | `SharpImageCodec` (the only module that imports sharp) |
+| `leanpdf/canvas` | `renderPage`, `renderPageImage` for Node and Bun (the only module that imports @napi-rs/canvas) |
 
 Bundlers keep only what you import. Minified sizes, including the core each needs (`bun run size`).
 Decoders for images browsers can't decode (JPEG 2000, CMYK JPEG, fax; 30 KB) load with
@@ -290,16 +317,16 @@ Decoders for images browsers can't decode (JPEG 2000, CMYK JPEG, fax; 30 KB) loa
 
 | Import | Minified | Gzipped |
 |---|--:|--:|
-| `compressPdfBlob` (core, Blob I/O, browser codec) | 44.7 KB | 17.2 KB |
-| `openPdf` | 22.5 KB | 8.8 KB |
-| `openPdf` + `getInfo` | 30.2 KB | 12.0 KB |
-| `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 31.8 KB | 12.2 KB |
-| `openPdf` + `extractText` | 47.8 KB | 20.4 KB |
-| `openPdf` + `renderPage` | 126.0 KB | 52.8 KB |
-| `rewritePdf` + all editing plugins | 50.5 KB | 19.0 KB |
-| `mergePdfs` | 41.4 KB | 16.0 KB |
-| `decryptPdf` | 43.7 KB | 17.4 KB |
-| everything | 221.0 KB | 88.3 KB |
+| `compressPdfBlob` (core, Blob I/O, browser codec) | 44.8 KB | 17.2 KB |
+| `openPdf` | 22.6 KB | 8.9 KB |
+| `openPdf` + `getInfo` | 30.4 KB | 12.0 KB |
+| `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 31.9 KB | 12.3 KB |
+| `openPdf` + `extractText` | 48.0 KB | 20.5 KB |
+| `openPdf` + `renderPage` | 126.5 KB | 53.0 KB |
+| `rewritePdf` + all editing plugins | 50.6 KB | 19.1 KB |
+| `mergePdfs` | 41.5 KB | 16.0 KB |
+| `decryptPdf` | 43.8 KB | 17.4 KB |
+| everything | 221.5 KB | 88.5 KB |
 
 ### I/O
 

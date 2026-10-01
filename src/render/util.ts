@@ -55,9 +55,40 @@ export function pixelBox(b: Box): Box | null {
 export type Canvas = OffscreenCanvas;
 export type Ctx = OffscreenCanvasRenderingContext2D;
 
+/**
+ * Where the renderer gets canvases, paths, matrices and pixel buffers: the browser's own by
+ * default, or a canvas library's in Node and Bun (leanpdf/canvas sets that up).
+ */
+export interface CanvasBackend {
+  createCanvas(width: number, height: number): OffscreenCanvas;
+  Path2D: typeof Path2D;
+  DOMMatrix: typeof DOMMatrix;
+  ImageData: typeof ImageData;
+}
+
+let backend: CanvasBackend | undefined;
+
+/** Use `b` for rendering from now on (undefined: the browser's globals again). */
+export function setCanvasBackend(b: CanvasBackend | undefined): void {
+  backend = b;
+}
+
+/** The backend in use: the one set, else the browser's. */
+export function env(): CanvasBackend {
+  if (backend) return backend;
+  if (typeof OffscreenCanvas !== 'function' || typeof Path2D !== 'function') throw new Error('No canvas here: in Node or Bun, render with leanpdf/canvas');
+  return (backend = { createCanvas: (w, h) => new OffscreenCanvas(w, h), Path2D, DOMMatrix, ImageData });
+}
+
+export const path2d = (): Path2D => new (env().Path2D)();
+export const domMatrix = (m: Matrix): DOMMatrix => new (env().DOMMatrix)(m);
+
+/** Whether an image source is a canvas (one we can draw into) rather than an ImageBitmap. */
+export const isCanvas = (x: CanvasImageSource): x is Canvas => 'getContext' in x;
+
 /** A new offscreen canvas and its 2D context. */
 export function canvas(w: number, h: number, readback = false): [Canvas, Ctx] {
-  const c = new OffscreenCanvas(Math.max(1, w), Math.max(1, h));
+  const c = env().createCanvas(Math.max(1, w), Math.max(1, h));
   const ctx = c.getContext('2d', readback ? { willReadFrequently: true } : undefined);
   if (!ctx) throw new Error('No 2D canvas');
   return [c, ctx];

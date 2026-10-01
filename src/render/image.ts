@@ -11,7 +11,7 @@ import { openStream, type StreamedData } from '../core/decode.ts';
 import type { PdfDocument } from '../core/document.ts';
 import { intOf, numOf, PdfDict, PdfName, PdfRef, type PdfObj } from '../core/objects.ts';
 import { loadColorSpace, type ColorSpace } from './colorspace.ts';
-import { canvas, type Canvas } from './util.ts';
+import { canvas, isCanvas, type Canvas } from './util.ts';
 
 export interface LoadedImage {
   source: Canvas | ImageBitmap;
@@ -591,7 +591,7 @@ export async function loadImage(doc: PdfDocument, get: ImageDict, data: Streamed
     const ref = smask instanceof PdfRef ? smask : mask instanceof PdfRef ? mask : undefined;
     const alpha = ref && (await loadMask(doc, ref, ref === smask, source.width, source.height, opts));
     if (alpha) {
-      if (!(source instanceof OffscreenCanvas)) {
+      if (!isCanvas(source)) {
         const [c, ctx] = canvas(source.width, source.height);
         ctx.drawImage(source, 0, 0);
         source = c;
@@ -612,6 +612,6 @@ async function loadMask(doc: PdfDocument, ref: PdfRef, soft: boolean, w: number,
     k === 'SMask' || k === 'Mask' ? undefined : soft && k === 'ColorSpace' ? GRAY : soft && k === 'ImageMask' ? false : raw ? d.get(k) : doc.resolve(d.get(k) ?? (a ? d.get(a) : undefined));
   const img = await loadImage(doc, get, await openStream(doc, hdr, MAX_DATA), { ...opts, width: w, height: h });
   if (!img) return null;
-  if (img.stencil) return img.source instanceof OffscreenCanvas ? img.source : grayToAlpha(img.source, w, h);
+  if (img.stencil) return isCanvas(img.source) ? img.source : grayToAlpha(img.source, w, h);
   return grayToAlpha(img.source, img.source.width, img.source.height);
 }

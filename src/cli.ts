@@ -38,6 +38,11 @@ Commands:
   rotate <in> <out> <deg> [--pages 1,3]    Rotate pages clockwise by a multiple of 90
   merge <out> <in>[:pages] <in>[:pages]... Concatenate PDFs, optionally selecting pages
   decrypt <in> <out> [--password <pw>]     Remove encryption (or set LEANPDF_PASSWORD)
+  render <in> <out.png> [--pages 1-3]      Render pages to PNG, JPEG or WebP (by extension);
+                             several pages are written as out-1.png, out-2.png, ...
+      --dpi <n>              Resolution (default 144), or
+      --width, --height <px> Fit each page within this size
+      -q, --quality <0-1>    JPEG and WebP quality (default 0.9)
   repair <in> <out>          Rewrite with a rebuilt cross-reference table and fixed streams
 
 Common options:
@@ -111,6 +116,19 @@ async function saveStream(path: string, stream: ReadableStream<Uint8Array>): Pro
   }
 }
 
+/** Import an optional dependency's module, or explain what to install. */
+async function optional<T>(pkg: string, load: () => Promise<T>): Promise<T> {
+  try {
+    return await load();
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND' || String(e).includes(`'${pkg}'`)) {
+      throw new Error(`This command needs ${pkg}: npm install ${pkg}`);
+    }
+    throw e;
+  }
+}
+
 const safeName = (s: string): string => basename(s.replace(/\\/g, '/')).replace(/[\0-\x1f<>:"|?*]/g, '_') || 'attachment';
 
 function printOutline(items: OutlineItem[], depth = 0): void {
@@ -144,6 +162,9 @@ async function main(): Promise<number> {
       'keep-js': { type: 'boolean' },
       'keep-attachments': { type: 'boolean' },
       password: { type: 'string' },
+      dpi: { type: 'string' },
+      width: { type: 'string' },
+      height: { type: 'string' },
       json: { type: 'boolean' },
       quiet: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
@@ -169,7 +190,7 @@ async function main(): Promise<number> {
       const [input, output] = need(2, '<in> <out>');
       const max = num(v.max, 'max');
       // sharp takes about 100 ms to load: only the commands that need it import it.
-      const { SharpImageCodec } = await import('./codecs/sharp.ts');
+      const { SharpImageCodec } = await optional('sharp', () => import('./codecs/sharp.ts'));
       const images = compressImages({
         codec: new SharpImageCodec({ progressive: v.progressive }),
         maxWidth: num(v['max-width'], 'max-width') ?? max,
@@ -261,6 +282,38 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case 'render': {
+      const [input, output] = need(2, '<in> <out.png>');
+      const ext = /\.(png|jpe?g|webp)$/i.exec(output)?.[1].toLowerCase();
+      if (!ext) throw new UsageError('render writes .png, .jpg or .webp files');
+      const format = ext === 'png' ? 'png' : ext === 'webp' ? 'webp' : 'jpeg';
+      const dpi = num(v.dpi, 'dpi') ?? 144;
+      const width = num(v.width, 'width');
+      const height = num(v.height, 'height');
+      const quality = num(v.quality, 'quality');
+      // Needs @napi-rs/canvas, loaded only here (like sharp for compress).
+      const { renderPageImage } = await optional('@napi-rs/canvas', () => import('./canvas.ts'));
+      await withDoc(input, async (doc) => {
+        const count = (await getPages(doc)).length;
+        const pages = v.pages ? parseRanges(v.pages, count) : Array.from({ length: count }, (_, i) => i);
+        const written: { page: number; file: string; width: number; height: number; warnings: string[] }[] = [];
+        for (const i of pages) {
+          const file = pages.length === 1 ? output : output.replace(/(\.\w+)$/, `-${i + 1}$1`);
+          const r = await renderPageImage(doc, i, { scale: dpi / 72, width, height, format, quality });
+          const fh = await open(file, 'w');
+          try {
+            await fh.write(r.data);
+          } finally {
+            await fh.close();
+          }
+          written.push({ page: i + 1, file, width: r.width, height: r.height, warnings: r.warnings });
+          if (!v.quiet && !v.json) console.log(`page ${i + 1}: ${file} (${r.width}x${r.height})${r.warnings.length ? `, ${r.warnings.join('; ')}` : ''}`);
+        }
+        if (v.json) console.log(JSON.stringify(written, null, 2));
+      });
+      return 0;
+    }
+
     case 'images': {
       const [input] = need(1, '<in>');
       await withDoc(input, async (doc) => {
@@ -277,7 +330,7 @@ async function main(): Promise<number> {
         await mkdir(v.extract, { recursive: true });
         let saved = 0;
         let skipped = 0;
-        const sharp = (await import('sharp')).default;
+        const sharp = (await optional('sharp', () => import('sharp'))).default;
         for (const im of images) {
           const x = await extractImage(doc, im.num);
           if (!x) {
