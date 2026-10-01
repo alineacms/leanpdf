@@ -18,6 +18,7 @@ import {
   hasQpdf,
   HTML,
   JS,
+  ENGINE_NAME,
   launchBrowser,
   qpdfCheck,
   qpdfImages,
@@ -128,7 +129,7 @@ describe('end to end in Bun: compressPdf + SharpImageCodec', () => {
   }, 60_000);
 });
 
-describe.skipIf(!browser)('end to end in Chromium: compressPdfBlob in a Web Worker', () => {
+describe.skipIf(!browser)(`end to end in ${ENGINE_NAME}: compressPdfBlob in a Web Worker`, () => {
   type PageResult =
     | { ok: false; error: string }
     | { ok: true; report: CompressReport; events: RewriteProgress[]; ms: number; blobType: string; size: number };

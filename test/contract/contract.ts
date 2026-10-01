@@ -282,7 +282,10 @@ async function verifyOutput(
     ctx.info.mae = Math.round(mae * 100) / 100;
     ctx.info.meanDiff = Math.round(meanDiff * 100) / 100;
     check(mae <= MAX_CELL_MAE, `cell MAE ${mae.toFixed(2)} > ${MAX_CELL_MAE}: output does not resemble the input`);
-    check(meanDiff <= MAX_MEAN_DIFF, `mean colour moved by ${meanDiff.toFixed(2)} > ${MAX_MEAN_DIFF}`);
+    // An output of a few pixels is a handful of samples of the browser's resampler, which at
+    // extreme ratios (5000:1 in WebKit) doesn't quite average the whole area.
+    const meanLimit = o.width * o.height <= 4 ? 2 * MAX_MEAN_DIFF : MAX_MEAN_DIFF;
+    check(meanDiff <= meanLimit, `mean colour moved by ${meanDiff.toFixed(2)} > ${meanLimit}`);
   }
   if (o.components === 3 && input.components === 1 && dec.channels >= 3) {
     // Gray in, RGB out: must still be neutral.
