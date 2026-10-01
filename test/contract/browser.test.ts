@@ -5,11 +5,11 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { Page } from 'playwright-core';
-import { bundle, HTML, JS, launchChromium, serveStatic, type Asset, type StaticServer } from '../browser/harness.ts';
+import { bundle, HTML, JS, launchBrowser, serveStatic, type Asset, type StaticServer } from '../browser/harness.ts';
 import { CASE_NAMES, type CaseResult, type InfoValue } from './contract.ts';
 import { makeJpegFixtures } from './node-helpers.ts';
 
-const launch = await launchChromium('browser codec contract');
+const launch = await launchBrowser('browser codec contract');
 const browser = launch.browser;
 
 let server: StaticServer | undefined;

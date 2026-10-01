@@ -15,11 +15,11 @@ import { buildSite, writeSite, type SiteFiles } from '../../site/build.ts';
 import { FEATURES, loadBench, loadFeatures } from '../../site/src/bench.ts';
 import { startSiteServer, type SiteServer } from '../../site/serve.ts';
 import { buildFixturePdf } from './fixture.ts';
-import { hasQpdf, launchChromium, qpdfCheck } from './harness.ts';
+import { hasQpdf, isChromium, launchBrowser, qpdfCheck } from './harness.ts';
 
 // The harness starts Chromium with ForceEagerMeasureMemory, so measureUserAgentSpecificMemory()
 // answers right away instead of at the next GC.
-const launch = await launchChromium('site test');
+const launch = await launchBrowser('site test');
 const browser = launch.browser;
 
 let dir = '';
@@ -214,7 +214,8 @@ describe.skipIf(!browser)('app', () => {
     const context = await browser!.newContext({ viewport: { width: 390, height: 844 } });
     const { page, w } = await openApp(context);
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
-    expect(await page.getAttribute('#memory-table tbody th', 'data-method')).toBe('performance.measureUserAgentSpecificMemory()');
+    // measureUserAgentSpecificMemory() is Chromium's.
+    if (isChromium) expect(await page.getAttribute('#memory-table tbody th', 'data-method')).toBe('performance.measureUserAgentSpecificMemory()');
     expect(await page.getAttribute('#tab-compress', 'aria-selected')).toBe('true');
     expect(await page.isEnabled('#compress-start')).toBe(true);
 
@@ -225,8 +226,8 @@ describe.skipIf(!browser)('app', () => {
     expect(await page.textContent('#compress-r-recompressed')).toBe('3');
     expect(await page.textContent('#compress-r-skipped')).toContain('below the size threshold');
     expect(await page.textContent('#compress-saved-pct')).toMatch(/^−\d+\.\d%$/);
-    // Peak memory was sampled during the run by at least one meter.
-    await page.waitForFunction(() => /: [\d.]+ (KB|MB)/.test(document.getElementById('compress-r-memory')?.textContent ?? ''), undefined, { timeout: 15_000 });
+    // Peak memory was sampled during the run by at least one meter (Chromium has them).
+    if (isChromium) await page.waitForFunction(() => /: [\d.]+ (KB|MB)/.test(document.getElementById('compress-r-memory')?.textContent ?? ''), undefined, { timeout: 15_000 });
 
     const outBytes = Number(await page.getAttribute('#compress-report', 'data-output-bytes'));
     const href = (await page.getAttribute('#compress-download', 'href'))!;

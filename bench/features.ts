@@ -12,7 +12,7 @@
  */
 import { mkdirSync, readFileSync, rmSync, statSync, existsSync, writeFileSync } from 'node:fs';
 import * as mupdf from 'mupdf';
-import { bundle, launchChromium } from '../test/browser/harness.ts';
+import { bundle, launchBrowser } from '../test/browser/harness.ts';
 import { CORPUS, CORPUS_DIR, ensureCorpus } from './corpus.ts';
 import { FEATURE_TITLES, featureTables, type FeatureRow } from './table.ts';
 
@@ -225,7 +225,7 @@ async function renderBench(files: string[]): Promise<FeatureRow[]> {
       return file.size ? new Response(file) : new Response('not found', { status: 404 });
     },
   });
-  const launch = await launchChromium('render bench');
+  const launch = await launchBrowser('render bench');
   if (!launch.browser) throw new Error(launch.skip);
   const out: FeatureRow[] = [];
   const renderers = [

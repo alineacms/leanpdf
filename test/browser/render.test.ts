@@ -1,5 +1,5 @@
 /**
- * renderPage in headless Chromium, compared with MuPDF on generated pages: vector graphics, color
+ * renderPage in a headless browser (and with @napi-rs/canvas), compared with MuPDF on generated pages: vector graphics, color
  * spaces, images, text in each font format, shadings, patterns, transparency, annotations and
  * page geometry. Thresholds allow for anti-aliasing and font rasterization differences; `bad` is
  * the fraction of pixels that differ structurally.
@@ -11,12 +11,11 @@ import sharp from 'sharp';
 import { synthesize } from '../contract/contract.ts';
 import { bytes, DocBuilder, flate } from '../support/pdfgen.ts';
 import { ccittEncode } from '../render/ccitt-encoder.ts';
+import { ENGINE_NAME, isChromium } from './harness.ts';
 import { compare, debugPng, pixel, startNodeSession, startSession, theirs, type Session } from './render-support.ts';
 
-for (const [backend, start] of [
-  ['Chromium', startSession],
-  ['@napi-rs/canvas', startNodeSession],
-] as const) {
+// The Node backend runs once, with the Chromium run; Firefox and WebKit runs test only themselves.
+for (const [backend, start] of [[ENGINE_NAME, startSession] as const, ...(isChromium ? [['@napi-rs/canvas', startNodeSession] as const] : [])]) {
   let session: Session | undefined;
   let skip = '';
 

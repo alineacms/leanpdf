@@ -1,9 +1,10 @@
 /**
- * Shared plumbing for tests that drive headless Chromium: locating and launching the browser,
- * bundling browser code with Bun.build, and a tiny static server (Web Workers need a real URL).
+ * Shared plumbing for tests that drive a headless browser: launching it, bundling browser code
+ * with Bun.build, and a tiny static server (Web Workers need a real URL). The engine is Chromium,
+ * or Firefox or WebKit with BROWSER=firefox / BROWSER=webkit (installed by playwright-core).
  */
 import { existsSync } from 'node:fs';
-import { chromium, type Browser } from 'playwright-core';
+import { chromium, firefox, webkit, type Browser } from 'playwright-core';
 
 const PREINSTALLED = [
   '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
@@ -19,7 +20,7 @@ export function chromiumPath(): string | undefined {
 
 export interface Chromium {
   browser: Browser;
-  /** Release this file's hold on the shared browser (see launchChromium). Safe to call twice. */
+  /** Release this file's hold on the shared browser (see launchBrowser). Safe to call twice. */
   close(): Promise<void>;
 }
 
@@ -27,8 +28,18 @@ export type Launch = ({ skip?: undefined } & Chromium) | { browser?: undefined; 
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+export type Engine = 'chromium' | 'firefox' | 'webkit';
+export const ENGINE: Engine = ((): Engine => {
+  const e = process.env.BROWSER ?? 'chromium';
+  if (e !== 'chromium' && e !== 'firefox' && e !== 'webkit') throw new Error(`BROWSER must be chromium, firefox or webkit, not ${e}`);
+  return e;
+})();
+/** The engine's name for test titles. */
+export const ENGINE_NAME = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' }[ENGINE];
+export const isChromium = ENGINE === 'chromium';
+
 /**
- * Flags for every test browser. ForceEagerMeasureMemory makes measureUserAgentSpecificMemory()
+ * Flags for every test browser (Chromium). ForceEagerMeasureMemory makes measureUserAgentSpecificMemory()
  * answer immediately instead of at the next GC (10-20 s), which the demo test relies on.
  */
 const ARGS = ['--enable-blink-features=ForceEagerMeasureMemory'];
@@ -42,6 +53,7 @@ let shared: Shared | undefined;
 
 async function start(): Promise<{ browser: Browser } | { error: string }> {
   try {
+    if (ENGINE !== 'chromium') return { browser: await (ENGINE === 'firefox' ? firefox : webkit).launch({ headless: true, timeout: 30_000 }) };
     return { browser: await chromium.launch({ executablePath: chromiumPath(), headless: true, timeout: 30_000, args: ARGS }) };
   } catch (e) {
     return { error: (e instanceof Error ? e.message : String(e)).split('\n')[0] };
@@ -55,7 +67,7 @@ async function shutdown(s: Shared): Promise<void> {
 }
 
 /**
- * Get headless Chromium. Never throws: when no browser can be started the result carries a skip
+ * Get the headless browser. Never throws: when no browser can be started the result carries a skip
  * reason, which callers report and turn into skipped tests.
  *
  * One browser is shared by all test files in a `bun test` process, and each file releases it in
@@ -65,7 +77,7 @@ async function shutdown(s: Shared): Promise<void> {
  * listening socket of a Bun.serve started after it was intermittently torn down (Chromium got
  * ERR_CONNECTION_REFUSED), which looks like a stale file descriptor being closed twice.
  */
-export async function launchChromium(label: string): Promise<Launch> {
+export async function launchBrowser(label: string): Promise<Launch> {
   const s = shared ?? (shared = { launch: start(), users: 0 });
   if (s.timer) clearTimeout(s.timer);
   s.timer = undefined;
@@ -75,8 +87,8 @@ export async function launchChromium(label: string): Promise<Launch> {
     s.users--;
     if (shared === s) shared = undefined;
     const skip =
-      `${label}: SKIPPED, could not launch Chromium (${chromiumPath() ?? 'playwright-core default'}): ${r.error}. ` +
-      'Set CHROMIUM_PATH or run `bunx playwright-core install chromium`.';
+      `${label}: SKIPPED, could not launch ${ENGINE_NAME} (${(isChromium && chromiumPath()) || 'playwright-core default'}): ${r.error}. ` +
+      `${isChromium ? 'Set CHROMIUM_PATH or run' : 'Run'} \`bunx playwright-core install ${ENGINE}\`.`;
     console.warn(skip);
     return { skip };
   }

@@ -21,6 +21,26 @@ jobs:
       - run: bun test
       - run: bun run build
 
+  browsers:
+    # The browser tests (rendering, compression end to end, the codec, the website) in the other engines.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install qpdf
+        run: sudo apt-get update && sudo apt-get install -y qpdf fonts-urw-base35
+      - run: bun install --frozen-lockfile
+      - name: Install ${{ matrix.browser }}
+        run: bunx playwright-core install --with-deps ${{ matrix.browser }}
+      - name: Browser tests in ${{ matrix.browser }}
+        run: bun test test/browser test/contract/browser.test.ts
+        env:
+          BROWSER: ${{ matrix.browser }}
+
   node:
     # The published build must run on plain Node, not just Bun.
     runs-on: ubuntu-latest

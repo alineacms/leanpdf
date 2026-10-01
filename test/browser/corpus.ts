@@ -11,7 +11,7 @@ import { readdirSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } f
 import { basename, join } from 'node:path';
 import sharp from 'sharp';
 import type { Raster } from '../support/render.ts';
-import { bundle, HTML, JS, launchChromium } from './harness.ts';
+import { bundle, HTML, JS, launchBrowser } from './harness.ts';
 import { compare } from './render-support.ts';
 
 const args = process.argv.slice(2);
@@ -65,7 +65,7 @@ const server = Bun.serve({
     return file.size ? new Response(file) : new Response(null, { status: 404 });
   },
 });
-const launch = await launchChromium('corpus');
+const launch = await launchBrowser('corpus');
 if (!launch.browser) throw new Error(launch.skip);
 const browser = launch.browser;
 let page!: Awaited<ReturnType<typeof browser.newPage>>;

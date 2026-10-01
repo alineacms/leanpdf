@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser, Page } from 'playwright-core';
 import { buildDocFixture, buildFixturePdf } from '../test/browser/fixture.ts';
-import { launchChromium } from '../test/browser/harness.ts';
+import { launchBrowser } from '../test/browser/harness.ts';
 import { buildSite, writeSite } from './build.ts';
 import { startSiteServer } from './serve.ts';
 
@@ -19,7 +19,7 @@ const OUT = new URL('./screenshots/', import.meta.url).pathname;
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
 
-const launch = await launchChromium('site screenshots');
+const launch = await launchBrowser('site screenshots');
 if (!launch.browser) {
   console.error(launch.skip);
   process.exit(1);

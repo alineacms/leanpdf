@@ -13,9 +13,9 @@ import { buildSite, writeSite } from '../../site/build.ts';
 import { startSiteServer, type SiteServer } from '../../site/serve.ts';
 import { extractText, getInfo, getPages, openPdf } from '../../src/index.ts';
 import { buildDocFixture, buildFixturePdf } from './fixture.ts';
-import { hasQpdf, launchChromium, qpdfCheck } from './harness.ts';
+import { hasQpdf, launchBrowser, qpdfCheck } from './harness.ts';
 
-const launch = await launchChromium('app tools test');
+const launch = await launchBrowser('app tools test');
 const browser = launch.browser;
 
 let dir = '';

@@ -1,5 +1,5 @@
 /**
- * Render tests: leanpdf's renderer runs in headless Chromium (or in this process with
+ * Render tests: leanpdf's renderer runs in a headless browser (or in this process with
  * @napi-rs/canvas), MuPDF renders the same page as the reference, and the two rasters are
  * compared. Set RENDER_DEBUG=<dir> to write both renders and their difference as PNGs.
  */
@@ -9,7 +9,7 @@ import type { Page } from 'playwright-core';
 import sharp from 'sharp';
 import type { RenderOptions } from '../../src/render/page.ts';
 import { renderPdf, type Raster } from '../support/render.ts';
-import { bundle, HTML, JS, launchChromium, serveStatic, type StaticServer } from './harness.ts';
+import { bundle, HTML, JS, launchBrowser, serveStatic, type StaticServer } from './harness.ts';
 
 export interface Rendered extends Raster {
   warnings: string[];
@@ -22,9 +22,9 @@ export interface Session {
   close(): Promise<void>;
 }
 
-/** Start Chromium with the renderer loaded; null (with the reason logged) when Chromium is unavailable. */
+/** Start the browser with the renderer loaded; a skip reason (logged) when it is unavailable. */
 export async function startSession(): Promise<Session | { skip: string }> {
-  const launch = await launchChromium('render tests');
+  const launch = await launchBrowser('render tests');
   if (!launch.browser) return { skip: launch.skip };
   const js = await bundle(new URL('./render-entry.ts', import.meta.url).pathname);
   const server: StaticServer = serveStatic({ '/': HTML(), '/entry.js': JS(js) });

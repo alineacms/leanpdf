@@ -18,7 +18,7 @@ import {
   hasQpdf,
   HTML,
   JS,
-  launchChromium,
+  launchBrowser,
   qpdfCheck,
   qpdfImages,
   qpdfPageCount,
@@ -29,7 +29,7 @@ import {
 
 const OPTS = { maxWidth: 1600, maxHeight: 1600, jpegQuality: 0.75 };
 
-const launch = await launchChromium('browser e2e');
+const launch = await launchBrowser('browser e2e');
 const browser = launch.browser;
 
 let dir = '';
