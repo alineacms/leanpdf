@@ -1,13 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+leanpdf renders pages now, and decodes JPEG 2000. Rendering loads its JPEG 2000, JPEG and fax decoders only when a page needs them, so the other features stay as small as before.
 
 - `renderPage`: render pages to a canvas (Canvas 2D, main thread or worker). Embedded TrueType, OpenType, CFF, Type 1 and Type 3 fonts; images, streamed to about the size drawn, JPEGs decoded in parallel, and cached per document (CMYK JPEGs by leanpdf's own decoder, since browsers invert them); JPEG 2000; shadings and patterns; transparency groups and soft masks; annotations; optional content. Not yet: JBIG2 images.
 - JPEG 2000: a decoder of its own (Part 1: all progression orders, tiles, precincts, layers, code-block styles, 5/3 and 9/7 wavelets, 1-16 bit components, palettes, reduced-resolution decoding), loaded on demand. compressImages now recompresses JPEG 2000 images too (except those with their own alpha).
 - decryptPdf: RC4 keys shorter than 128 bits in /V 4 crypt filters (their /Length is often given in bytes) now decrypt.
 - openPdf also takes the file's bytes (Uint8Array or ArrayBuffer).
 - Files are read through a 4 MB cache of 64 KB blocks, and large streams in 1 MB pieces: rendering a page takes 0-5 reads instead of 6-42, which matters most where each read of a File is slow (phones).
+- CLI: sharp is loaded only by the commands that use it (compress, images --extract), so the others start about 70 ms sooner.
 - Website: a View tab. It reads files of up to 128 MB into memory first, re-renders only when the width changes, and shows how long reading, opening and rendering took.
+- Benchmarks for every feature, not just compression: info, text, page selection, rotation, merging, decryption and rendering, against pdf-lib, PDF.js, MuPDF.js and qpdf. In the README and on the website.
 
 ## 0.2.0
 
