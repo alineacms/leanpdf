@@ -2,7 +2,7 @@
  * Rendering in Node and Bun with @napi-rs/canvas (Skia), the only module that imports it. Pages
  * render exactly as in the browser, with the library's canvases, paths and fonts.
  */
-import { createCanvas, DOMMatrix, ImageData, Path2D, type Canvas } from '@napi-rs/canvas';
+import { createCanvas, DOMMatrix, GlobalFonts, ImageData, Path2D, type Canvas } from '@napi-rs/canvas';
 import type { PdfDocument } from './core/document.ts';
 import { renderPage as renderToCanvas, type RenderOptions, type RenderResult } from './render/page.ts';
 import { setCanvasBackend } from './render/util.ts';
@@ -34,6 +34,42 @@ class Path extends Path2D {
   }
 }
 
+/**
+ * Unlike browsers, Skia here doesn't fall back to another font for a glyph the chosen one lacks,
+ * so a missing Zapf Dingbats or Symbol could draw nothing. Those names are pointed at the first
+ * installed font that draws their glyphs (tried by drawing them), preferring the usual stand-ins.
+ */
+const STAND_INS: [name: string, probe: string, prefer: string[]][] = [
+  ['Zapf Dingbats', '\u2714\u2665\u275e', ['D050000L', 'Noto Sans Symbols 2', 'DejaVu Sans', 'FreeSerif', 'FreeSans', 'Segoe UI Symbol', 'Apple Symbols']],
+  ['Symbol', '\u2211\u03b1\u221e', ['Standard Symbols PS', 'Noto Sans Symbols', 'DejaVu Sans', 'FreeSerif', 'Segoe UI Symbol', 'Apple Symbols', 'Liberation Serif']],
+];
+
+/** Whether `family` draws every character of `probe` (each leaves some ink). */
+function draws(family: string, probe: string): boolean {
+  const c = createCanvas(40, 40);
+  const ctx = c.getContext('2d');
+  ctx.font = `32px "${family}"`;
+  for (const ch of probe) {
+    ctx.clearRect(0, 0, 40, 40);
+    ctx.fillText(ch, 4, 32);
+    const d = ctx.getImageData(0, 0, 40, 40).data;
+    let ink = 0;
+    for (let i = 3; i < d.length; i += 4) ink += d[i];
+    if (!ink) return false;
+  }
+  return true;
+}
+
+function aliasStandIns(): void {
+  const installed = [...new Set(GlobalFonts.families.map((f) => f.family))];
+  for (const [name, probe, prefer] of STAND_INS) {
+    if (GlobalFonts.has(name)) continue;
+    const order = [...prefer.filter((f) => installed.includes(f)), ...installed.filter((f) => !prefer.includes(f))];
+    const found = order.find((f) => draws(f, probe));
+    if (found) GlobalFonts.setAlias(found, name);
+  }
+}
+
 let ready = false;
 
 /** Make renderPage draw with @napi-rs/canvas. Done for you by the functions below. */
@@ -45,6 +81,7 @@ export function useNapiCanvas(): void {
     DOMMatrix: DOMMatrix as unknown as typeof globalThis.DOMMatrix,
     ImageData: ImageData as unknown as typeof globalThis.ImageData,
   });
+  aliasStandIns();
   ready = true;
 }
 
