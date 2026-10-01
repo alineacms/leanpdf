@@ -228,7 +228,8 @@ export const streamed = (d: Decoded): StreamedData => ({
   },
 });
 
-const RAW_CHUNK = 256 * 1024;
+// Large: each source read can be a costly round trip (a Blob read goes through the browser).
+const RAW_CHUNK = 1 << 20;
 
 /**
  * A stream's data as it decodes, for consumers that take it in pieces, such as image rows. With

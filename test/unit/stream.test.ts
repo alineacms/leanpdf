@@ -16,7 +16,8 @@ function pngUp(data: Uint8Array, cols: number): Uint8Array {
   return out;
 }
 
-const samples = Uint8Array.from({ length: 300 * 1000 }, (_, i) => (i * 7 + (i >> 9)) & 255);
+// Larger than a raw read (1 MB), so it arrives in pieces.
+const samples = Uint8Array.from({ length: 300 * 8000 }, (_, i) => (i * 7 + (i >> 9)) & 255);
 
 async function fixture() {
   const b = new DocBuilder();

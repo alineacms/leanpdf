@@ -1,7 +1,8 @@
 import { concat } from './bytes.ts';
 import type { SourceReader } from './reader.ts';
 
-const CHUNK = 256 * 1024;
+// Large: each source read can be a costly round trip (a Blob read goes through the browser).
+const CHUNK = 1 << 20;
 
 /** A pull-based stream of source bytes [offset, offset+length), read in bounded chunks. */
 function rangeStream(

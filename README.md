@@ -7,7 +7,7 @@ is copied byte for byte.
 - **Low memory.** Files are read in slices and written in one pass. A 600 MB PDF compresses in
   about 300 MB of RSS.
 - **Small.** No dependencies, and every feature is a separate module. Compressing in the browser
-  is 43 KB minified (17 KB gzipped); it uses the browser's own JPEG and zlib.
+  is 45 KB minified (17 KB gzipped); it uses the browser's own JPEG and zlib.
 - **Conservative.** Unusual objects are left alone, images are only replaced when they get at
   least 10% smaller, and damaged files are repaired as they're read.
 
@@ -142,8 +142,9 @@ straight to about the size they're drawn, a page's JPEGs decode in parallel, and
 are cached per document. JPEGs go to the browser's decoder, except CMYK ones, which browsers
 invert: leanpdf decodes those itself.
 
-Open the file's bytes rather than the File when it fits in memory: a page takes dozens of small
-reads, and each read from a File is a round trip to the browser, slow on phones in particular.
+A File is read in pieces through a 4 MB cache of 64 KB blocks, so a page takes a few reads, and
+each read from a File is a round trip to the browser (slowest on phones). When the file fits in
+memory, opening its bytes saves those too.
 
 | Option | Default | |
 |---|---|---|
@@ -277,16 +278,16 @@ Decoders for images browsers can't decode (JPEG 2000, CMYK JPEG, fax; 30 KB) loa
 
 | Import | Minified | Gzipped |
 |---|--:|--:|
-| `compressPdfBlob` (core, Blob I/O, browser codec) | 43.9 KB | 16.9 KB |
-| `openPdf` | 21.7 KB | 8.5 KB |
-| `openPdf` + `getInfo` | 29.3 KB | 11.6 KB |
-| `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 30.8 KB | 11.9 KB |
-| `openPdf` + `extractText` | 46.8 KB | 20.1 KB |
-| `openPdf` + `renderPage` | 125.2 KB | 52.5 KB |
-| `rewritePdf` + all editing plugins | 49.6 KB | 18.7 KB |
-| `mergePdfs` | 40.6 KB | 15.7 KB |
-| `decryptPdf` | 42.9 KB | 17.1 KB |
-| everything | 220.2 KB | 88.0 KB |
+| `compressPdfBlob` (core, Blob I/O, browser codec) | 44.7 KB | 17.2 KB |
+| `openPdf` | 22.5 KB | 8.8 KB |
+| `openPdf` + `getInfo` | 30.2 KB | 12.0 KB |
+| `openPdf` + `getOutline`, `getLinks`, `getFormFields` | 31.8 KB | 12.2 KB |
+| `openPdf` + `extractText` | 47.8 KB | 20.4 KB |
+| `openPdf` + `renderPage` | 126.0 KB | 52.8 KB |
+| `rewritePdf` + all editing plugins | 50.5 KB | 19.0 KB |
+| `mergePdfs` | 41.4 KB | 16.0 KB |
+| `decryptPdf` | 43.7 KB | 17.4 KB |
+| everything | 221.0 KB | 88.3 KB |
 
 ### I/O
 

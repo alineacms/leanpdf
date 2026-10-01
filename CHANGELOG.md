@@ -6,6 +6,7 @@
 - JPEG 2000: a decoder of its own (Part 1: all progression orders, tiles, precincts, layers, code-block styles, 5/3 and 9/7 wavelets, 1-16 bit components, palettes, reduced-resolution decoding), loaded on demand. compressImages now recompresses JPEG 2000 images too (except those with their own alpha).
 - decryptPdf: RC4 keys shorter than 128 bits in /V 4 crypt filters (their /Length is often given in bytes) now decrypt.
 - openPdf also takes the file's bytes (Uint8Array or ArrayBuffer).
+- Files are read through a 4 MB cache of 64 KB blocks, and large streams in 1 MB pieces: rendering a page takes 0-5 reads instead of 6-42, which matters most where each read of a File is slow (phones).
 - Website: a View tab. It reads files of up to 128 MB into memory first, re-renders only when the width changes, and shows how long reading, opening and rendering took.
 
 ## 0.2.0
