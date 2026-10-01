@@ -52,7 +52,7 @@
     "node": ">=18.17"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json && bun scripts/minify.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p test/tsconfig.json",
     "test": "bun test",
     "size": "bun scripts/size.ts",

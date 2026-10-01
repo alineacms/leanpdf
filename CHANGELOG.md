@@ -5,6 +5,7 @@
 - Rendering in Node and Bun: `leanpdf/canvas` renders pages with @napi-rs/canvas (Skia), an optional dependency like sharp. `renderPageImage` returns PNG, JPEG or WebP bytes; `renderPage` draws onto a canvas of that library. The renderer's tests now run on both Chromium and @napi-rs/canvas.
 - CLI: `render <in> <out.png>` writes pages as PNG, JPEG or WebP, at `--dpi` or fitted to `--width`/`--height`. A command whose optional dependency is missing says what to install.
 - Fonts that aren't embedded also name Liberation and the URW fonts, so canvas libraries without fontconfig's aliases (and browsers on Linux) find a metric-compatible Helvetica, Times or Courier.
+- Smaller install: the published JavaScript is minified (whitespace and syntax; names kept, so stack traces stay readable), still one file per module so apps' bundlers drop what they don't use. The package installs at 517 KB instead of 845 KB (a 185 KB download instead of 253 KB); app bundles are unchanged.
 
 ## 0.3.0
 
