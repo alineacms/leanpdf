@@ -16,7 +16,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { loadBench } from './src/bench.ts';
+import { loadBench, loadFeatures } from './src/bench.ts';
 import { ROOT } from './src/config.ts';
 import { HEADERS_FILE } from './src/headers.ts';
 import { appPage } from './src/pages/app.ts';
@@ -148,7 +148,7 @@ export async function buildSite(opts: BuildOptions = {}): Promise<SiteFiles> {
   put('index.html', homePage(assets, bench, bundleSize));
   put('app/index.html', appPage(assets));
   put('docs/index.html', docsPage(assets));
-  put('benchmarks/index.html', benchmarksPage(assets, bench));
+  put('benchmarks/index.html', benchmarksPage(assets, bench, loadFeatures()));
   put('404.html', notFoundPage(assets));
   put('_headers', HEADERS_FILE);
   return files;

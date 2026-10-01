@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { firstRepeat, parseRanges } from '../../site/src/app/ranges.ts';
-import { barChart, benchTable, corpusDescriptions, loadBench, type BenchRow } from '../../site/src/bench.ts';
+import { barChart, benchTable, corpusDescriptions, FEATURES, featureSection, loadBench, loadFeatures, type BenchRow, type FeatureRow } from '../../site/src/bench.ts';
 import { headersFor, HEADERS_FILE, parseHeaders } from '../../site/src/headers.ts';
 import { highlight } from '../../site/src/highlight.ts';
 import { renderInline, renderMarkdown, slugify } from '../../site/src/markdown.ts';
@@ -173,6 +173,22 @@ describe('benchmarks', () => {
     if (!data) return; // no bench/results.json yet: the page shows a notice instead
     expect(data.files.length).toBeGreaterThan(0);
     expect(corpusDescriptions().size).toBeGreaterThan(0);
+    // Every feature in the committed results has a description.
+    for (const r of loadFeatures() ?? []) expect(FEATURES.some((f) => f.id === r.feature)).toBe(true);
+  });
+
+  test('feature section: charts on the largest job, a cell per tool and job', () => {
+    const f = (tool: string, job: string, extra: Partial<FeatureRow> = {}): FeatureRow => ({
+      feature: 'text', job, tool, status: 'ok', seconds: 0.5, cpuSeconds: 0.4, peakMb: 80, inBytes: job === 'big.pdf' ? 600 << 20 : 2 << 20, outBytes: 1000, valid: '–', ...extra,
+    });
+    const rows = [f('**leanpdf** (Node)', 'a.pdf'), f('**leanpdf** (Node)', 'big.pdf'), f('other', 'a.pdf'), f('other', 'big.pdf', { status: 'out of memory' })];
+    const html = featureSection(rows, FEATURES.find((x) => x.id === 'text')!);
+    expect(html).toContain('<h2 id="feature-text">Text extraction</h2>');
+    expect(html).toContain('Wall time, big.pdf');
+    expect(html.match(/<svg/g)).toHaveLength(2);
+    expect(html).toContain('<tr class="hl"><th scope="row"><strong>leanpdf</strong> (Node)</th><td class="num">0.50 s<br><span class="muted">80 MB</span></td>');
+    expect(html).toContain('<td class="num status-bad">out of memory</td>');
+    expect(featureSection(rows, FEATURES.find((x) => x.id === 'merge')!)).toBe('');
   });
 });
 

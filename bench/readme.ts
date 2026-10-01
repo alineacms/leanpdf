@@ -1,12 +1,13 @@
 /**
- * Put the committed benchmark results (bench/results.json) into the README: the full tables
- * between the BENCHMARKS markers and a short summary at BENCHMARK-SUMMARY. Run after copying a
- * fresh bench/.out/results.json to bench/results.json:
+ * Put the committed benchmark results into the README: the compression tables (bench/results.json)
+ * between the BENCHMARKS markers with a short summary at BENCHMARK-SUMMARY, and the other features
+ * (bench/features.json) between the FEATURE-BENCHMARKS markers. Run after copying fresh files from
+ * bench/.out/:
  *
  *   bun bench/readme.ts
  */
-import { readFileSync, writeFileSync } from 'node:fs';
-import { markdownTables, type Row } from './table.ts';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { FEATURE_TITLES, featureCell, featureTables, markdownTables, type FeatureRow, type Row } from './table.ts';
 
 const root = new URL('../', import.meta.url).pathname;
 const rows: Row[] = JSON.parse(readFileSync(`${root}bench/results.json`, 'utf8'));
@@ -36,7 +37,24 @@ for (const file of files) {
   summary += `| \`${file}\` (${mb(input.inBytes)}) | ${cell(find(file, /leanpdf.*Node/))} | ${cell(find(file, /pdf-lib/))} | ${cell(find(file, /Ghostscript WASM/))} |\n`;
 }
 
-readme = replaceBetween(readme, 'BENCHMARK-SUMMARY', summary);
 readme = replaceBetween(readme, 'BENCHMARKS', markdownTables(rows, files));
+const featuresPath = `${root}bench/features.json`;
+if (existsSync(featuresPath)) {
+  const features: FeatureRow[] = JSON.parse(readFileSync(featuresPath, 'utf8'));
+  readme = replaceBetween(readme, 'FEATURE-BENCHMARKS', featureTables(features));
+  // Summary of the other features on the largest file, where streaming shows.
+  const largest = features.reduce((a, b) => (b.inBytes > a.inBytes && b.job.endsWith('.pdf') ? b : a)).job;
+  const on = features.filter((r) => r.job === largest && r.feature !== 'render');
+  const libs = [/leanpdf/, /pdf-lib/, /PDF\.js/, /MuPDF/];
+  const names = libs.map((re) => on.find((r) => re.test(r.tool))?.tool.replace(/\*\*/g, '').replace(/ \d.*| \(.*/, ''));
+  summary += `\nOn \`${largest}\` (${mb(on[0].inBytes)}), wall time and peak RSS:\n\n`;
+  summary += `| Feature | ${names.map((n) => n ?? '').join(' | ')} |\n|---|${libs.map(() => '--:').join('|')}|\n`;
+  for (const feature of [...new Set(on.map((r) => r.feature))]) {
+    const cells = libs.map((re) => on.find((r) => r.feature === feature && re.test(r.tool)));
+    summary += `| ${FEATURE_TITLES[feature].replace(/[:(,].*/, '').trim()} | ${cells.map((r) => (r ? featureCell(r) : '–')).join(' | ')} |\n`;
+  }
+  summary += '\n(– means the library has no such feature.)\n';
+}
+readme = replaceBetween(readme, 'BENCHMARK-SUMMARY', summary);
 writeFileSync(readmePath, readme);
 console.log('README.md benchmark tables updated');

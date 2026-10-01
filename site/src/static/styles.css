@@ -469,9 +469,23 @@ h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
 /* Benchmarks */
 
 .bench-summary { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); margin-bottom: 8px; }
-.bench-file { padding-top: 32px; }
-.bench-file h2 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
-.bench-file h2 .muted { font-size: 1rem; font-weight: 500; letter-spacing: 0; }
+.bench-nav ul { display: flex; flex-wrap: wrap; gap: 6px 8px; list-style: none; padding: 0; margin: 0 0 8px; }
+.bench-nav a {
+  display: inline-block;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-2);
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+.bench-nav a:hover { color: var(--text); border-color: var(--text-2); }
+.bench-feature { padding-top: 40px; }
+.bench-feature > p { color: var(--text-2); max-width: 44em; }
+.bench-file { padding-top: 24px; }
+.bench-file h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.bench-file h3 .muted { font-size: 1rem; font-weight: 500; letter-spacing: 0; }
+.bench-table .muted { color: var(--muted); font-size: 0.88em; }
 .charts { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); margin: 16px 0 20px; }
 .chart {
   margin: 0;

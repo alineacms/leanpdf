@@ -7,6 +7,7 @@
     "@jspawn/ghostscript-wasm": "0.0.2",
     "mupdf": "1.28.1",
     "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.3.289",
     "sharp": "0.35.5"
   }
 }

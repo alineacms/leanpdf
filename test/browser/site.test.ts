@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BrowserContext, Page } from 'playwright-core';
 import { buildSite, writeSite, type SiteFiles } from '../../site/build.ts';
-import { loadBench } from '../../site/src/bench.ts';
+import { FEATURES, loadBench, loadFeatures } from '../../site/src/bench.ts';
 import { startSiteServer, type SiteServer } from '../../site/serve.ts';
 import { buildFixturePdf } from './fixture.ts';
 import { hasQpdf, launchChromium, qpdfCheck } from './harness.ts';
@@ -174,7 +174,7 @@ describe.skipIf(!browser)('site pages', () => {
     } else {
       expect(await page.locator('.bench-file').count()).toBe(data.files.length);
       for (const file of data.files) {
-        const section = page.locator('.bench-file', { has: page.locator(`h2:has-text("${file}")`) });
+        const section = page.locator('.bench-file', { has: page.locator(`h3:has-text("${file}")`) });
         const rows = data.rows.filter((r) => r.file === file).length;
         expect(await section.locator('table.bench-table tbody tr').count()).toBe(rows);
         expect(await section.locator('svg[role="img"]').count()).toBe(3);
@@ -183,6 +183,15 @@ describe.skipIf(!browser)('site pages', () => {
         expect(bars).toEqual([rows + 1, rows, rows]);
       }
     }
+    // One section per other feature, each with charts and a table.
+    const features = loadFeatures();
+    const shown = FEATURES.filter((f) => features?.some((r) => r.feature === f.id));
+    for (const f of shown) {
+      const section = page.locator(`section[aria-labelledby="feature-${f.id}"]`);
+      expect(await section.locator('svg[role="img"]').count()).toBeGreaterThan(0);
+      expect(await section.locator('table.bench-table tbody tr').count()).toBeGreaterThan(0);
+    }
+    expect(await page.locator('.bench-nav a').count()).toBe(shown.length ? shown.length + 1 : 0);
     expect(await page.textContent('#methodology')).toBe('Methodology');
     expect(w.errors).toEqual([]);
     await page.close();

@@ -76,7 +76,7 @@ export const fmtMb = (bytes: number): string => (bytes >= 10 * MiB ? (bytes / Mi
 export const fmtRss = (mb: number): string => `${Math.round(mb).toLocaleString('en-US')} MB`;
 export const fmtSec = (s: number): string => `${s.toFixed(1)} s`;
 const plainTool = (tool: string): string => tool.replace(/\*\*/g, '');
-export const isLeanpdf = (r: BenchRow): boolean => /leanpdf/i.test(r.tool);
+export const isLeanpdf = (r: { tool: string }): boolean => /leanpdf/i.test(r.tool);
 
 function fmtPsnr(r: BenchRow): string {
   if (r.status !== 'ok') return '';
@@ -94,11 +94,17 @@ function savedPct(r: BenchRow): string {
 // ---------------------------------------------------------------------------------------------
 // Charts
 
-interface ChartSpec {
+/** What a chart needs of a row. */
+interface ChartRow {
+  tool: string;
+  status: string;
+}
+
+interface ChartSpec<R extends ChartRow = BenchRow> {
   title: string;
   unit: string;
-  value: (r: BenchRow) => number;
-  format: (r: BenchRow) => string;
+  value: (r: R) => number;
+  format: (r: R) => string;
   /** Optional first bar for comparison (e.g. the input size), drawn in a lighter gray. */
   baseline?: { label: string; value: number; text: string };
 }
@@ -119,7 +125,7 @@ function bar(x: number, y: number, w: number, cls: string): string {
 }
 
 /** Horizontal bar chart, one bar per tool; leanpdf's bars carry the accent color. */
-export function barChart(rows: BenchRow[], spec: ChartSpec, idBase: string): string {
+export function barChart<R extends ChartRow>(rows: R[], spec: ChartSpec<R>, idBase: string): string {
   type Item = { label: string; cls: string; value?: number; text: string; failed?: boolean };
   const items: Item[] = [];
   if (spec.baseline) items.push({ label: spec.baseline.label, cls: 'base', value: spec.baseline.value, text: spec.baseline.text });
@@ -182,10 +188,133 @@ export function fileSection(data: BenchData, file: string): string {
     barChart(rows, { title: 'CPU time', unit: 'seconds, user + system', value: (r) => r.cpuSeconds, format: (r) => fmtSec(r.cpuSeconds) }, `${id}-cpu`),
   ];
   return `<section class="bench-file" aria-labelledby="${id}">
-<h2 id="${id}"><code>${escapeHtml(file)}</code> <span class="muted">${fmtMb(inBytes)}</span></h2>
+<h3 id="${id}"><code>${escapeHtml(file)}</code> <span class="muted">${fmtMb(inBytes)}</span></h3>
 ${desc ? `<p>${escapeHtml(desc.charAt(0).toUpperCase() + desc.slice(1))}.</p>` : ''}
 <div class="charts">${charts.join('\n')}</div>
 ${benchTable(rows, `Results for ${file}`)}
+</section>`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Other features (bench/features.json, rows as written by bench/features.ts)
+
+export interface FeatureRow {
+  feature: string;
+  /** A corpus file, or the files merged. */
+  job: string;
+  tool: string;
+  status: string;
+  seconds: number;
+  cpuSeconds: number | null;
+  peakMb: number | null;
+  inBytes: number;
+  outBytes: number | null;
+  valid: string;
+  /** Rendering only: pages, median time per page, percent of pixels unlike MuPDF's. */
+  pages?: number;
+  medianPageMs?: number;
+  differs?: number | null;
+}
+
+export const FEATURES_PATH = `${ROOT}bench/features.json`;
+
+/** What each feature's benchmark does, in the order shown. */
+export const FEATURES: { id: string; title: string; text: string }[] = [
+  { id: 'info', title: 'Info', text: 'Open the file, read its metadata and the size of every page.' },
+  { id: 'text', title: 'Text extraction', text: 'Extract the text of every page into a file.' },
+  { id: 'pages', title: 'Select pages', text: 'Write a new file with every other page (1, 3, 5, …).' },
+  { id: 'rotate', title: 'Rotate', text: 'Rotate every page by 90° and save.' },
+  { id: 'merge', title: 'Merge', text: 'Concatenate the three smaller files, then all four, into a new file.' },
+  { id: 'decrypt', title: 'Decrypt', text: 'Remove AES-256 encryption with the user password, from copies encrypted by qpdf.' },
+  {
+    id: 'render',
+    title: 'Rendering',
+    text: 'Render every page to a canvas at 144 dpi in headless Chromium, from the file in memory, timed until the pixels can be read. The first three pages are compared with MuPDF’s rendering: the last column is the share of pixels that differ clearly, which is mostly fonts, since the corpus doesn’t embed them.',
+  },
+];
+
+function isFeatureRow(x: unknown): x is FeatureRow {
+  const r = x as Record<string, unknown>;
+  return typeof r === 'object' && r !== null && ['feature', 'job', 'tool', 'status'].every((k) => typeof r[k] === 'string') && typeof r.seconds === 'number';
+}
+
+/** The committed feature results, or null when there are none. */
+export function loadFeatures(path = FEATURES_PATH): FeatureRow[] | null {
+  if (!existsSync(path)) return null;
+  const json: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  if (!Array.isArray(json)) throw new Error(`${path}: expected an array of rows`);
+  const rows = json.filter(isFeatureRow);
+  if (rows.length !== json.length) throw new Error(`${path}: ${json.length - rows.length} malformed rows`);
+  return rows.length ? rows : null;
+}
+
+const fmtTime = (s: number): string => (s < 10 ? `${s.toFixed(2)} s` : `${s.toFixed(1)} s`);
+const jobName = (job: string): string => (job.endsWith('.pdf') ? `<code>${escapeHtml(job)}</code>` : escapeHtml(job));
+const fmtDiffers = (r: FeatureRow): string => (typeof r.differs !== 'number' ? '–' : r.differs < 0.1 ? '&lt;0.1%' : `${r.differs.toFixed(1)}%`);
+
+/** Tools down, jobs across; each cell wall time over peak memory. */
+function featureTable(rows: FeatureRow[], title: string): string {
+  const jobs = [...new Set(rows.map((r) => r.job))];
+  const size = (job: string) => rows.find((r) => r.job === job)!.inBytes;
+  let html = `<div class="table-wrap" tabindex="0"><table class="bench-table"><caption class="visually-hidden">${escapeHtml(title)}: wall time and peak memory</caption><thead><tr><th scope="col">Tool</th>`;
+  for (const j of jobs) html += `<th scope="col" class="num">${jobName(j)}<br><span class="muted">${fmtMb(size(j))}</span></th>`;
+  html += '</tr></thead><tbody>';
+  for (const tool of [...new Set(rows.map((r) => r.tool))]) {
+    html += `<tr${isLeanpdf({ tool }) ? ' class="hl"' : ''}><th scope="row">${renderInline(tool)}</th>`;
+    for (const j of jobs) {
+      const r = rows.find((x) => x.job === j && x.tool === tool);
+      if (!r) html += '<td class="num">–</td>';
+      else if (r.status !== 'ok') html += `<td class="num status-bad">${escapeHtml(r.status)}</td>`;
+      else {
+        const bad = r.valid !== '–' && r.valid !== 'yes' && r.valid !== 'warnings' ? `<br><span class="status-bad">output: ${escapeHtml(r.valid)}</span>` : '';
+        html += `<td class="num">${fmtTime(r.seconds)}<br><span class="muted">${fmtRss(r.peakMb ?? 0)}</span>${bad}</td>`;
+      }
+    }
+    html += '</tr>';
+  }
+  return `${html}</tbody></table></div>`;
+}
+
+function renderTable(rows: FeatureRow[]): string {
+  let html = `<div class="table-wrap" tabindex="0"><table class="bench-table"><caption class="visually-hidden">Rendering times</caption><thead><tr>
+<th scope="col">File</th><th scope="col">Renderer</th><th scope="col" class="num">All pages</th><th scope="col" class="num">Per page (median)</th><th scope="col" class="num">Unlike MuPDF</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    const file = `${jobName(r.job)}${r.pages ? ` <span class="muted">${r.pages} pages</span>` : ''}`;
+    html += `<tr${isLeanpdf(r) ? ' class="hl"' : ''}><td>${file}</td><th scope="row">${renderInline(r.tool)}</th>`;
+    html +=
+      r.status !== 'ok'
+        ? `<td class="num status-bad" colspan="3">${escapeHtml(r.status)}</td></tr>`
+        : `<td class="num">${fmtTime(r.seconds)}</td><td class="num">${Math.round(r.medianPageMs ?? 0)} ms</td><td class="num">${fmtDiffers(r)}</td></tr>`;
+  }
+  return `${html}</tbody></table></div>`;
+}
+
+/** One feature: a sentence on the job, charts for the largest job (rendering: every file), a table. */
+export function featureSection(all: FeatureRow[], feature: (typeof FEATURES)[number]): string {
+  const rows = all.filter((r) => r.feature === feature.id);
+  if (!rows.length) return '';
+  const id = `feature-${feature.id}`;
+  let charts: string[];
+  let table: string;
+  if (feature.id === 'render') {
+    const perPage = rows.map((r) => ({ ...r, tool: `${r.tool.replace(/ \(Chromium\)/, '')}, ${r.job}` }));
+    charts = [barChart(perPage, { title: 'Time per page', unit: 'median, ms', value: (r) => r.medianPageMs ?? 0, format: (r) => `${Math.round(r.medianPageMs ?? 0)} ms` }, `${id}-ms`)];
+    table = renderTable(rows);
+  } else {
+    const largest = rows.reduce((a, b) => (b.inBytes > a.inBytes ? b : a)).job;
+    const big = rows.filter((r) => r.job === largest);
+    const on = largest.endsWith('.pdf') ? largest : `${largest} (${fmtMb(big[0].inBytes)})`;
+    charts = [
+      barChart(big, { title: `Wall time, ${on}`, unit: 'seconds', value: (r) => r.seconds, format: (r) => fmtTime(r.seconds) }, `${id}-time`),
+      barChart(big, { title: `Peak memory, ${on}`, unit: 'RSS in MB', value: (r) => r.peakMb ?? 0, format: (r) => fmtRss(r.peakMb ?? 0) }, `${id}-mem`),
+    ];
+    table = featureTable(rows, feature.title);
+  }
+  return `<section class="bench-feature" aria-labelledby="${id}">
+<h2 id="${id}">${escapeHtml(feature.title)}</h2>
+<p>${escapeHtml(feature.text)}</p>
+<div class="charts">${charts.join('\n')}</div>
+${table}
 </section>`;
 }
 
